@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-Content*)",
+      "PowerShell(Get-Content*)",
+      "PowerShell(.venv\\Scripts\\streamlit.exe*)",
+      "PowerShell(.venv\\Scripts\\python.exe -m pytest*)",
+      "PowerShell(.venv\\Scripts\\python.exe -c*)",
+      "PowerShell(.venv\\Scripts\\pip.exe install*)",
+      "PowerShell(Get-ChildItem*)",
+      "PowerShell(New-Item*)"
+    ],
+    "deny": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"Add-Content -Path 'logs\\\\swiftsage.log' -Value \\\"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  INFO     hooks  File edited by Claude Code\\\" -Encoding utf8\""
+          }
+        ]
+      }
+    ]
+  }
+}

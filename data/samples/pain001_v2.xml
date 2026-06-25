@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- pain.001 - Customer Credit Transfer Initiation (Version 2 / Modified)
+     Changes vs v1:
+       - BREAKING: InstdAmt for PMTINF-001 changed: 20000.00 → 18500.00
+       - BREAKING: CdtrAcct IBAN for PMTINF-001 changed (different beneficiary account)
+       - WARNING:  ReqdExctnDt for PMTINF-002 changed: 2024-01-05 → 2024-01-08
+       - INFO:     Added RgltrRptg to PMTINF-002 transaction
+       - BENIGN:   MsgId, CreDtTm, UETR, EndToEndId, InstrId changed (IDs/timestamps)
+-->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>CORP/20240115/PAY001</MsgId>
+      <CreDtTm>2024-01-15T11:30:00</CreDtTm>
+      <NbOfTxs>2</NbOfTxs>
+      <CtrlSum>23500.00</CtrlSum>
+      <InitgPty>
+        <Nm>ACME Corporation GmbH</Nm>
+        <Id>
+          <OrgId>
+            <LEI>5493001KJTIIGC8Y1R12</LEI>
+          </OrgId>
+        </Id>
+      </InitgPty>
+    </GrpHdr>
+
+    <!-- Payment Instruction 1 — MODIFIED AMOUNT + CREDITOR IBAN -->
+    <PmtInf>
+      <PmtInfId>PMTINF-001</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>18500.00</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+        <LclInstrm>
+          <Cd>INST</Cd>
+        </LclInstrm>
+        <CtgyPurp>
+          <Cd>SUPP</Cd>
+        </CtgyPurp>
+      </PmtTpInf>
+      <ReqdExctnDt>
+        <Dt>2024-01-03</Dt>
+      </ReqdExctnDt>
+      <Dbtr>
+        <Nm>ACME Corporation GmbH</Nm>
+        <PstlAdr>
+          <Ctry>DE</Ctry>
+          <AdrLine>Musterstrasse 1, 10115 Berlin</AdrLine>
+        </PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>DE89370400440532013000</IBAN>
+        </Id>
+        <Ccy>EUR</Ccy>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BICFI>DEUTDEDB</BICFI>
+        </FinInstnId>
+      </DbtrAgt>
+
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>INSTR-001-B</InstrId>
+          <EndToEndId>E2E-CORP-20240115-001</EndToEndId>
+          <UETR>f48d7b88-3fd7-5d82-cb55-f1672g33d2c8</UETR>
+        </PmtId>
+        <Amt>
+          <!-- BREAKING: amount reduced by 1500 EUR -->
+          <InstdAmt Ccy="EUR">18500.00</InstdAmt>
+        </Amt>
+        <ChrgBr>SLEV</ChrgBr>
+        <CdtrAgt>
+          <FinInstnId>
+            <BICFI>BNPAFRPP</BICFI>
+          </FinInstnId>
+        </CdtrAgt>
+        <Cdtr>
+          <Nm>Supplier France SARL</Nm>
+          <PstlAdr>
+            <Ctry>FR</Ctry>
+          </PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <!-- BREAKING: different IBAN — funds will go to wrong account -->
+            <IBAN>FR7630006000019876543210145</IBAN>
+          </Id>
+        </CdtrAcct>
+        <Purp>
+          <Cd>GDDS</Cd>
+        </Purp>
+        <RmtInf>
+          <Ustrd>Invoice INV-2023-456 payment (revised)</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+
+    <!-- Payment Instruction 2 — CHANGED EXECUTION DATE + NEW REGULATORY FIELD -->
+    <PmtInf>
+      <PmtInfId>PMTINF-002</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>5000.00</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>
+        <!-- WARNING: execution date pushed out by 3 days -->
+        <Dt>2024-01-08</Dt>
+      </ReqdExctnDt>
+      <Dbtr>
+        <Nm>ACME Corporation GmbH</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>DE89370400440532013000</IBAN>
+        </Id>
+        <Ccy>EUR</Ccy>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BICFI>DEUTDEDB</BICFI>
+        </FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>INSTR-002-B</InstrId>
+          <EndToEndId>E2E-CORP-20240115-002</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">5000.00</InstdAmt>
+        </Amt>
+        <ChrgBr>SLEV</ChrgBr>
+        <CdtrAgt>
+          <FinInstnId>
+            <BICFI>ABNAAMST</BICFI>
+          </FinInstnId>
+        </CdtrAgt>
+        <Cdtr>
+          <Nm>Dutch Partner BV</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>NL91ABNA0417164300</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>Consulting fee Q4-2023</Ustrd>
+        </RmtInf>
+        <!-- INFO: new regulatory reporting field added -->
+        <RgltryRptg>
+          <DbtCdtRptgInd>DBIT</DbtCdtRptgInd>
+          <Authrty>
+            <Ctry>DE</Ctry>
+            <Nm>Bundesbank</Nm>
+          </Authrty>
+          <Dtls>
+            <Cd>150</Cd>
+          </Dtls>
+        </RgltryRptg>
+      </CdtTrfTxInf>
+    </PmtInf>
+
+  </CstmrCdtTrfInitn>
+</Document>

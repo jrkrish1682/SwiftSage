@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- pacs.008 - FI to FI Customer Credit Transfer -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.10"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <FIToFICstmrCdtTrf>
+    <GrpHdr>
+      <MsgId>DEUTDEDB/20240101/PACS008-001</MsgId>
+      <CreDtTm>2024-01-01T09:05:00</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf>
+        <SttlmMtd>CLRG</SttlmMtd>
+        <ClrSys>
+          <Cd>TGT2</Cd>
+        </ClrSys>
+      </SttlmInf>
+      <InstgAgt>
+        <FinInstnId>
+          <BICFI>DEUTDEDBXXX</BICFI>
+        </FinInstnId>
+      </InstgAgt>
+      <InstdAgt>
+        <FinInstnId>
+          <BICFI>BNPAFRPPXXX</BICFI>
+        </FinInstnId>
+      </InstdAgt>
+    </GrpHdr>
+
+    <CdtTrfTxInf>
+      <PmtId>
+        <InstrId>INSTR-INTER-001</InstrId>
+        <EndToEndId>E2E-CORP-20240101-001</EndToEndId>
+        <TxId>TX-DEUTDEDB-20240101-001</TxId>
+        <UETR>a26c5a77-2ec6-4c71-ba44-e0561f22c1b7</UETR>
+      </PmtId>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+        <LclInstrm>
+          <Cd>INST</Cd>
+        </LclInstrm>
+      </PmtTpInf>
+      <IntrBkSttlmAmt Ccy="EUR">20000.00</IntrBkSttlmAmt>
+      <IntrBkSttlmDt>2024-01-01</IntrBkSttlmDt>
+      <ChrgBr>SLEV</ChrgBr>
+      <DbtrAgt>
+        <FinInstnId>
+          <BICFI>DEUTDEDBXXX</BICFI>
+        </FinInstnId>
+      </DbtrAgt>
+      <Dbtr>
+        <Nm>ACME Corporation GmbH</Nm>
+        <PstlAdr>
+          <Ctry>DE</Ctry>
+        </PstlAdr>
+        <Id>
+          <OrgId>
+            <LEI>5493001KJTIIGC8Y1R12</LEI>
+          </OrgId>
+        </Id>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>DE89370400440532013000</IBAN>
+        </Id>
+      </DbtrAcct>
+      <CdtrAgt>
+        <FinInstnId>
+          <BICFI>BNPAFRPPXXX</BICFI>
+        </FinInstnId>
+      </CdtrAgt>
+      <Cdtr>
+        <Nm>Supplier France SARL</Nm>
+        <PstlAdr>
+          <Ctry>FR</Ctry>
+        </PstlAdr>
+      </Cdtr>
+      <CdtrAcct>
+        <Id>
+          <IBAN>FR7630006000011234567890189</IBAN>
+        </Id>
+      </CdtrAcct>
+      <Purp>
+        <Cd>GDDS</Cd>
+      </Purp>
+      <RmtInf>
+        <Ustrd>Invoice INV-2023-456 payment</Ustrd>
+      </RmtInf>
+    </CdtTrfTxInf>
+  </FIToFICstmrCdtTrf>
+</Document>

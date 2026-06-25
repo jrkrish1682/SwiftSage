@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample Bank Internal Payment Message
+  Format : Meridian Bank proprietary PaymentInstruction v2.1
+  Purpose: Demo input for SwiftSage Transformation Advisor
+           Target mapping -> pain.001.001.09 (Customer Credit Transfer Initiation)
+-->
+<PaymentInstruction xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <MessageHeader>
+    <InternalRef>PAY-2024-GBP-001234</InternalRef>
+    <CreationDate>2024-01-15</CreationDate>
+    <CreationTime>09:32:00</CreationTime>
+    <Channel>CORPORATE_ONLINE</Channel>
+    <Priority>NORMAL</Priority>
+    <BatchRef>BATCH-20240115-001</BatchRef>
+  </MessageHeader>
+
+  <OrderingCustomer>
+    <CompanyName>Meridian Logistics Holdings Ltd</CompanyName>
+    <CompanyRegistrationNo>08234567</CompanyRegistrationNo>
+    <InternalCustomerId>CUST-UK-00092341</InternalCustomerId>
+    <AccountNumber>20139847</AccountNumber>
+    <SortCode>20-00-00</SortCode>
+    <Currency>GBP</Currency>
+    <Address>
+      <Line1>10 Canary Wharf</Line1>
+      <City>London</City>
+      <PostCode>E14 5AB</PostCode>
+      <Country>GB</Country>
+    </Address>
+  </OrderingCustomer>
+
+  <Payments>
+
+    <Payment>
+      <PaymentRef>PMT-001-INV-99832</PaymentRef>
+      <ValueDate>2024-01-16</ValueDate>
+      <PaymentType>BACS</PaymentType>
+      <Amount>47500.00</Amount>
+      <Currency>GBP</Currency>
+      <Beneficiary>
+        <BeneficiaryName>Apex Components Supplies Ltd</BeneficiaryName>
+        <AccountNumber>31456789</AccountNumber>
+        <SortCode>30-00-04</SortCode>
+        <BankName>HSBC UK Bank Plc</BankName>
+        <Country>GB</Country>
+      </Beneficiary>
+      <RemittanceInfo>Payment for Invoice INV-99832 dated 2024-01-10</RemittanceInfo>
+      <CostCentre>CC-PROCUREMENT-001</CostCentre>
+    </Payment>
+
+    <Payment>
+      <PaymentRef>PMT-002-INV-99856</PaymentRef>
+      <ValueDate>2024-01-17</ValueDate>
+      <PaymentType>CHAPS</PaymentType>
+      <Amount>125000.00</Amount>
+      <Currency>GBP</Currency>
+      <Beneficiary>
+        <BeneficiaryName>Global Trade Partners BV</BeneficiaryName>
+        <AccountNumber>NL91ABNA0417164300</AccountNumber>
+        <BIC>ABNANL2A</BIC>
+        <BankName>ABN AMRO Bank NV</BankName>
+        <Country>NL</Country>
+      </Beneficiary>
+      <RemittanceInfo>Q4 2023 Settlement - Contract REF-2023-GT-0089</RemittanceInfo>
+      <CostCentre>CC-FINANCE-002</CostCentre>
+    </Payment>
+
+  </Payments>
+
+  <InternalControls>
+    <TotalAmount>172500.00</TotalAmount>
+    <NumberOfPayments>2</NumberOfPayments>
+    <ApprovalStatus>APPROVED</ApprovalStatus>
+    <ApprovedBy>john.smith@meridian.co.uk</ApprovedBy>
+    <ApprovalTimestamp>2024-01-15T08:45:22Z</ApprovalTimestamp>
+    <WorkflowId>WF-2024-00234</WorkflowId>
+  </InternalControls>
+
+</PaymentInstruction>

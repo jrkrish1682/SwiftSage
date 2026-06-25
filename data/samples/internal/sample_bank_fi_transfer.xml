@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample Bank Internal FI Transfer Message
+  Format : Meridian Bank proprietary InterBankTransfer v1.4
+  Purpose: Demo input for SwiftSage Transformation Advisor
+           Target mapping -> pacs.008.001.10 (FI to FI Customer Credit Transfer)
+-->
+<InterBankTransfer xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <MessageHeader>
+    <InternalRef>IBT-2024-GBP-005678</InternalRef>
+    <CreationDate>2024-03-20</CreationDate>
+    <CreationTime>11:15:00</CreationTime>
+    <Channel>SWIFT_GPI</Channel>
+    <Priority>HIGH</Priority>
+  </MessageHeader>
+
+  <SendingBank>
+    <BankName>Meridian Bank Plc</BankName>
+    <BIC>MRDNGB2LXXX</BIC>
+    <Country>GB</Country>
+  </SendingBank>
+
+  <ReceivingBank>
+    <BankName>Deutsche Bank AG</BankName>
+    <BIC>DEUTDEDBXXX</BIC>
+    <Country>DE</Country>
+  </ReceivingBank>
+
+  <SettlementDetails>
+    <SettlementMethod>CORRESPONDENT</SettlementMethod>
+    <SettlementDate>2024-03-20</SettlementDate>
+    <SettlementCurrency>USD</SettlementCurrency>
+  </SettlementDetails>
+
+  <Transfer>
+    <TransferRef>TRF-001-FX-20240320</TransferRef>
+    <UniqueEndToEndRef>E2E-MRDNUK-20240320-FX-001</UniqueEndToEndRef>
+    <GpiUETR>f47ac10b-58cc-4372-a567-0e02b2c3d479</GpiUETR>
+    <InstructionId>INSTR-MRDNUK-TRF-001</InstructionId>
+    <InstructedAmount>500000.00</InstructedAmount>
+    <InstructedCurrency>USD</InstructedCurrency>
+    <ChargeCode>SHA</ChargeCode>
+    <ServiceLevelCode>G001</ServiceLevelCode>
+    <Originator>
+      <CustomerName>Meridian Logistics Holdings Ltd</CustomerName>
+      <AccountNumber>20139847</AccountNumber>
+      <SortCode>20-00-00</SortCode>
+      <LEI>213800ZBPBA7K7EMS638</LEI>
+      <Country>GB</Country>
+    </Originator>
+    <Beneficiary>
+      <CustomerName>Frankfurter Industrie AG</CustomerName>
+      <IBAN>DE89370400440532013000</IBAN>
+      <BIC>DEUTDEDBFRA</BIC>
+      <BankName>Deutsche Bank AG Frankfurt</BankName>
+      <Country>DE</Country>
+    </Beneficiary>
+    <RemittanceInfo>Settlement of FX contract FXC-2024-0320-001</RemittanceInfo>
+    <PurposeCode>TRAD</PurposeCode>
+  </Transfer>
+
+  <InternalControls>
+    <ComplianceStatus>CLEARED</ComplianceStatus>
+    <SanctionsScreenRef>SCR-2024-0320-FI-003</SanctionsScreenRef>
+    <ApprovedBy>treasury.ops@meridian.co.uk</ApprovedBy>
+    <WorkflowId>WF-2024-FI-00891</WorkflowId>
+  </InternalControls>
+
+</InterBankTransfer>

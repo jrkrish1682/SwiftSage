@@ -1,0 +1,38 @@
+# ── Virtual environment ────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Secrets — NEVER commit these ──────────────────────────────────────────────
+.env
+*.key
+*.pem
+secrets.json
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/*.log
+logs/*.log.*
+
+# ── Python cache ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# ── Generated artefacts ────────────────────────────────────────────────────────
+data/library/
+data/schemas/
+*.docx
+
+# ── OS / editor ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ── Claude Code local settings (personal, not shared) ─────────────────────────
+.claude/settings.local.json
