@@ -1,19 +1,18 @@
-# SWIFT Message Validator
+# SwiftSage — ISO 20022 Expert Agent
 
-An ISO 20022 expert agent that validates, compares, and explains SWIFT MX messages using LangChain, Claude AI, and Streamlit.
+An AI-powered assistant for Business Analysts and Product Owners at financial institutions migrating to ISO 20022. SwiftSage maps your bank's internal payment XML to ISO 20022 target messages, identifies transformation gaps, and generates a structured requirements document for your development team.
+
+Built with **Claude** (claude-sonnet-4-6), **LangGraph**, and **Streamlit**.
 
 ---
 
 ## Features
 
-- **Semantic XML comparison** — diff two ISO 20022 XML instances by business element, not line-by-line; ignores benign fields (IDs, timestamps)
-- **Breaking-change scoring** — 0–100 score with BREAKING / WARNING / BENIGN / INFO classification per diff
-- **Schema validation** — validate XML instances against XSD schemas
-- **Batch comparison** — compare entire folders of XMLs; surfaces top-20 recurring diff patterns
-- **Schema sync** — download the latest XSD packages from the ISO 20022 GitHub repository
-- **AI agent chat** — ask natural-language questions; agent uses all the above tools automatically
-- **Regression test generation** — auto-generate test cases from detected differences
-- **Message flow explanation** — roles, steps, downstream messages for any ISO 20022 type
+- **Transform Advisor** — Parse your internal XML → map each field to ISO 20022 (DIRECT / DERIVED / SPLIT / COMBINED / UNMAPPED) → identify BLOCKING and ENRICHMENT gaps → generate a Word requirements document
+- **AI Agent Chat** — Conversational ISO 20022 expert; ask anything about message types, field rules, payment flows, or version deltas
+- **XML Diff** — Semantic comparison of two ISO 20022 XML files; classifies each difference as BREAKING / WARNING / INFO / BENIGN with a 0–100 breaking-change score
+- **Standards Library** — Download and browse XSD schemas from the ISO 20022 GitHub repository
+- **Built-in samples** — Meridian Bank demo XMLs for pain.001 and pacs.008 to try without uploading your own files
 
 ---
 
@@ -24,30 +23,19 @@ An ISO 20022 expert agent that validates, compares, and explains SWIFT MX messag
 - Python 3.11+
 - An [Anthropic API key](https://console.anthropic.com)
 
-### 2. Create and activate a virtual environment
-
-**macOS / Linux**
-```bash
-cd demo2_swiftMsg_Validator
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-**Windows (Command Prompt)**
-```cmd
-cd demo2_swiftMsg_Validator
-python -m venv .venv
-.venv\Scripts\activate
-```
+### 2. Create a virtual environment
 
 **Windows (PowerShell)**
 ```powershell
-cd demo2_swiftMsg_Validator
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-To deactivate the venv at any time: `deactivate`
+**macOS / Linux**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
 ### 3. Install dependencies
 
@@ -55,65 +43,65 @@ To deactivate the venv at any time: `deactivate`
 pip install -r requirements.txt
 ```
 
-### 4. Configure (optional — paths only, no API key)
+### 4. Configure (optional — paths only, no secrets)
 
 ```bash
 cp .env.example .env
-# Edit .env to change schema/library paths if needed
+# Edit .env to change model or library paths if needed
 # Do NOT put your API key in .env — enter it in the UI instead
 ```
 
 ### 5. Run
 
-```bash
-streamlit run app.py
+```powershell
+.venv\Scripts\streamlit.exe run app.py
 ```
 
 The app opens at `http://localhost:8501`.
 
 ### 6. Enter your API key
 
-Paste your Anthropic API key in the **sidebar** text field. It is held in session memory only and never written to disk.
+Paste your Anthropic API key in the **sidebar**. It is held in session memory only and never written to disk.
 
 ---
 
 ## Project Structure
 
 ```
-demo2_swiftMsg_Validator/
-├── app.py                          # Streamlit UI entry point
+SwiftSage/
+├── app.py                              # Streamlit UI — 5 tabs
 ├── requirements.txt
 ├── .env.example
 ├── config/
-│   └── settings.py                 # All config via pydantic-settings
+│   └── settings.py                     # Pydantic-settings config (no secrets)
 ├── src/
 │   ├── agent/
-│   │   ├── swift_agent.py          # LangChain ReAct agent (Claude)
-│   │   └── tools.py                # 8 agent tools
+│   │   ├── swift_agent.py              # LangGraph ReAct agent + streaming
+│   │   └── tools.py                    # 12 @tool functions
+│   ├── transformer/
+│   │   ├── message_parser.py           # Walks internal XML → List[InternalField]
+│   │   ├── field_mapper.py             # Calls Claude API → List[MappedField]
+│   │   ├── gap_analyzer.py             # Mandatory field gap detection
+│   │   └── requirements_generator.py  # Generates Word (.docx) requirements doc
 │   ├── comparator/
-│   │   ├── xml_comparator.py       # Core semantic diff engine
-│   │   ├── canonicalizer.py        # XML normalisation
-│   │   └── diff_classifier.py      # Breaking-change rules + scoring
+│   │   ├── xml_comparator.py           # Semantic XML diff engine
+│   │   ├── canonicalizer.py            # XML normalisation
+│   │   └── diff_classifier.py          # BREAKING / WARNING / BENIGN / INFO rules
 │   ├── connectors/
-│   │   └── iso20022_connector.py   # ISO 20022 schema downloader
+│   │   └── iso20022_connector.py       # Downloads XSDs from ISO 20022 GitHub
 │   ├── storage/
-│   │   └── standards_library.py   # Local artefact catalogue
+│   │   └── standards_library.py        # Local artefact catalogue
 │   └── utils/helpers.py
 ├── data/
 │   └── samples/
-│       ├── pain001_v1.xml          # Baseline pain.001 (2 payments)
-│       ├── pain001_v2.xml          # Modified: breaking + warning changes
-│       └── pacs008_sample.xml      # Interbank credit transfer
+│       ├── internal/
+│       │   ├── sample_bank_payment.xml     # Meridian Bank pain.001 demo (46 fields)
+│       │   └── sample_bank_fi_transfer.xml # Meridian Bank pacs.008 demo
+│       ├── pain001_v1.xml                  # Baseline pain.001 (XML Diff demo)
+│       ├── pain001_v2.xml                  # Modified pain.001 with breaking changes
+│       └── pacs008_sample.xml              # ISO 20022 pacs.008 reference
 └── tests/
-    └── test_comparator.py          # 15 unit tests
-```
-
----
-
-## Running Tests
-
-```bash
-python -m pytest tests/ -v
+    └── test_comparator.py
 ```
 
 ---
@@ -122,142 +110,60 @@ python -m pytest tests/ -v
 
 | Tab | What it does |
 |-----|-------------|
-| **💬 Chat** | Conversational agent — ask anything, upload files, get streaming answers |
-| **🔍 XML Diff** | Direct visual comparison — select files, see colour-coded diff table, download reports |
-| **📚 Library** | Browse downloaded schemas and artefacts |
-| **ℹ️ Help** | Quick reference for tools and classification rules |
+| **💬 Chat** | Conversational ISO 20022 agent — streaming answers, BA/PO persona |
+| **🔄 Transform Advisor** | Map internal XML → ISO 20022, gap analysis, download requirements doc |
+| **🔍 XML Diff** | Semantic diff of two ISO 20022 XMLs with breaking-change scoring |
+| **📚 Library** | Browse downloaded XSD schemas |
+| **ℹ️ Help** | Quick-start guide and classification reference |
 
 ---
 
-## Sample Chat Conversations
+## Mapping Types
 
-Copy and paste any of these into the **💬 Chat** tab to test the agent.
+| Type | Meaning |
+|------|---------|
+| `DIRECT` | 1-to-1, same business meaning |
+| `DERIVED` | Must be computed — e.g. IBAN from UK sort code + account number |
+| `SPLIT` | One source field → multiple target fields |
+| `COMBINED` | Multiple source fields → one target — e.g. Date + Time → CreDtTm |
+| `UNMAPPED` | No ISO 20022 equivalent — e.g. CostCentre, WorkflowId |
 
----
+## Gap Types
 
-### 1. Message flow explanation
-
-```
-What is pacs.008 used for? Explain the full payment flow including upstream and downstream messages.
-```
-
-**Expected:** The agent explains the FI-to-FI credit transfer role, the debtor/creditor agent chain, and that it is typically preceded by pain.001 and followed by pacs.002 and camt.054.
-
----
-
-### 2. Compare the pre-loaded sample files
-
-```
-Compare the two sample pain.001 files (pain001_v1.xml and pain001_v2.xml in data/samples/) and tell me which changes are breaking and why.
-```
-
-**Expected:** The agent calls `compare_xml_messages`, identifies:
-- 🔴 BREAKING — `InstdAmt` changed from 20000.00 to 18500.00
-- 🔴 BREAKING — `CdtrAcct/IBAN` changed (funds would go to wrong account)
-- 🟠 WARNING  — `ReqdExctnDt` pushed out by 3 days
-- ℹ️ INFO     — `RgltryRptg` block added
-- ✅ BENIGN   — MsgId, CreDtTm, UETR, EndToEndId changed (ignored)
+| Type | Meaning |
+|------|---------|
+| `BLOCKING` | Mandatory field with no source — requires a business decision before go-live |
+| `ENRICHMENT` | Source exists but needs transformation or external reference data |
+| `CONDITIONAL` | Only required for certain payment rails or scenarios |
 
 ---
 
-### 3. Detect message type
-
-```
-What ISO 20022 message type is the file data/samples/pacs008_sample.xml?
-```
-
-**Expected:** The agent calls `detect_message_type` and returns `pacs.008.001.10` with domain `Payments Clearing and Settlement`.
-
----
-
-### 4. Generate regression test cases
-
-```
-Generate regression test cases for the differences between data/samples/pain001_v1.xml and data/samples/pain001_v2.xml.
-```
-
-**Expected:** The agent calls `generate_test_cases` and returns a Markdown checklist — one test case per BREAKING/WARNING diff, each with the XPath, change type, old/new values, and a suggested assertion.
-
----
-
-### 5. Explain a message you haven't heard of
-
-```
-What is camt.056 and when would a bank send it?
-```
-
-**Expected:** The agent explains the FI-to-FI Payment Cancellation Request, its relationship to pain.007 (Customer Payment Reversal), and that it is resolved by camt.029.
-
----
-
-### 6. Validate an uploaded file
-
-Upload one of the sample XMLs via the sidebar, then type:
-
-```
-Validate pain001_v1.xml and tell me if it passes schema validation.
-```
-
-**Expected:** The agent calls `validate_xml`. If no matching XSD is in the local library yet, it reports the detected namespace and advises running a schema sync.
-
----
-
-### 7. Sync schemas then validate
-
-```
-First sync the pain and pacs schemas from ISO 20022, then validate data/samples/pacs008_sample.xml.
-```
-
-**Expected:** The agent chains two tool calls — `fetch_iso20022_schemas` then `validate_xml` — and reports the validation result against the freshly downloaded XSD.
-
----
-
-### 8. Business impact question
-
-```
-Our system receives pain.001 files. If a counterparty starts sending pain.001.001.12 instead of pain.001.001.09, what fields might be new or changed that we need to handle?
-```
-
-**Expected:** The agent uses its ISO 20022 domain knowledge to explain the version delta: new LEI field under InitgPty, changes to address types (structured vs unstructured), new UltmtDbtr/UltmtCdtr handling, etc.
-
----
-
-### 9. Batch folder comparison (advanced)
-
-If you have two folders of XML files (e.g. `data/v1/` and `data/v2/`), ask:
-
-```
-Compare all XML files in data/samples/ against themselves as a batch and show me the top recurring diff patterns.
-```
-
-**Expected:** The agent calls `batch_compare_xml_folders` and returns a per-file summary table plus the top-N recurring diff patterns across the folder.
-
----
-
-### 10. Library status check
-
-```
-What schemas do I have in my local Standards Library?
-```
-
-**Expected:** The agent calls `list_standards_library` and returns a table of downloaded XSD artefacts, or advises running a sync if the library is empty.
-
----
-
-## Breaking-Change Classification Reference
+## Breaking-Change Classification (XML Diff)
 
 | Severity | Triggers | Action |
 |----------|----------|--------|
-| 🔴 **BREAKING** | Amount changed, IBAN changed, mandatory field removed/added, currency changed | Must fix before deployment |
-| 🟠 **WARNING** | Settlement/execution date changed, element re-ordered | Review with business team |
+| 🔴 **BREAKING** | Amount, IBAN, currency changed; mandatory field added or removed | Must fix before deployment |
+| 🟠 **WARNING** | Settlement or execution date changed; element reordered | Review with business team |
 | ℹ️ **INFO** | Optional field added or removed | Informational — no immediate action |
-| ✅ **BENIGN** | MsgId, CreDtTm, UETR, EndToEndId, InstrId, correlation refs | Safe to ignore |
+| ✅ **BENIGN** | MsgId, CreDtTm, UETR, EndToEndId, InstrId | Safe to ignore |
 
 ---
 
-## Adding Custom Ignore Patterns
+## Running Tests
 
-In the **🔍 XML Diff** tab, expand **⚙️ Ignore patterns** and add any tag name (local name only, no namespace prefix) to treat as benign. To make patterns permanent, edit `benign_patterns` in `config/settings.py`.
+```powershell
+.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AGENT_MODEL` | `claude-sonnet-4-6` | Claude model for agent and field mapper |
+| `STANDARDS_LIBRARY_PATH` | `data/library` | Where XSD packages are stored |
+| `BENIGN_PATTERNS` | `MsgId,CreDtTm,...` | Tags to ignore in XML diff |
 
 ---
 
@@ -265,6 +171,5 @@ In the **🔍 XML Diff** tab, expand **⚙️ Ignore patterns** and add any tag 
 
 | Source | Usage |
 |--------|-------|
-| [ISO 20022 GitHub](https://github.com/ISO20022/iso20022-messages) | XSD schema packages (auto-synced) |
-| [ISO 20022 Catalogue](https://www.iso20022.org/iso-20022-message-definitions) | Reference for message sets |
-| [SWIFT MyStandards](https://www.swift.com/our-solutions/standards/swift-mystandards) | Optional authenticated connector (add credentials to `.env`) |
+| [ISO 20022 GitHub](https://github.com/ISO20022/iso20022-messages) | XSD schema packages (auto-synced via Standards Library) |
+| [ISO 20022 Catalogue](https://www.iso20022.org/iso-20022-message-definitions) | Reference for message sets and field definitions |
