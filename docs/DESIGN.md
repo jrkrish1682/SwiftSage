@@ -2,7 +2,7 @@
 
 How SwiftSage is put together, why it is put together that way, and where to look when
 something needs changing. Read [`../README.md`](../README.md) first for what the product
-does and [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) for how it is narrated.
+does and [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) for a guided walkthrough of it.
 
 ---
 
@@ -144,7 +144,8 @@ select_fields()  ── ranks on business relevance, collapses repeated structur
         │           caps at MAX_MAPPED_FIELDS (20); the rest are reported as deferred
         ▼
 field_mapper ──► Claude (Anthropic SDK, one structured JSON call, max_tokens=16000)
-        │   ▲
+        │   ▲      cached system block: system_prompt() — element reference, rules, schema
+        │   │      user message: the selected fields only
         │   └── target_context() ← target_schema.mapping_context() (paths, cardinality,
         │                          types, code lists) + payment/trade business rules
         ▼
@@ -231,6 +232,49 @@ other external service, because the demo must work offline and must not need a s
 Events record **counts, durations and outcomes only** — never message content, XML
 payloads or credentials. Detail values that look like a secret are redacted, long strings
 truncated, and `record()` swallows write errors so telemetry can never break a run.
+(Numbers are exempt from redaction: a token *count* is not a credential, and its key
+contains the word "token".)
+
+### Token usage per request
+
+`observability/token_usage.py` normalises what the two SDKs report into one `TokenUsage`
+value, because they disagree on what "input tokens" means: the Anthropic SDK excludes
+cached tokens from `input_tokens`, LangChain's `usage_metadata` folds them back in and
+splits cache creation across per-TTL keys. In this codebase `input_tokens` always means
+the whole prompt, so `cache_read_tokens + cache_write_tokens` is the share of it the cache
+accounted for.
+
+Every model-backed event therefore carries `llm_calls`, `input_tokens`, `output_tokens`,
+`total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `system_prompt_tokens` and
+`system_prompt_measured`. A chat turn sums the several calls the ReAct loop makes; a
+mapping run is one call. Events without a model call carry none of these keys rather than
+a row of zeroes, and a run log written before this existed still aggregates — `from_detail`
+returns no usage for an event with no `llm_calls`.
+
+The API reports no separate figure for the system prompt, so it is not invented:
+`system_prompt_tokens` is the **cached prefix the API reported**, which is exactly the
+system block because nothing else is cached, and `system_prompt_measured` is true. Only
+when nothing was cached at all (a prompt below the model's cacheable minimum) does it fall
+back to a character-count estimate, with the flag false and the UI saying so.
+
+### Prompt caching
+
+Both model callers send their stable instructions as a system block marked
+`cache_control: {"type": "ephemeral"}`:
+
+- **Chat** — `SYSTEM_PROMPT` is long, identical every turn, and re-sent with the whole
+  history on each iteration of the ReAct loop, so it is the cheapest thing in the app to
+  cache.
+- **Transform Advisor** — `field_mapper.system_prompt()` holds the element reference,
+  business rules and output schema for the selected target. These depend only on the
+  target message and dwarf the field list, so the prompt was split: stable context in the
+  cached system block, the source fields in the user message. A prefix that varied per run
+  would never be served from cache, so a test asserts the split holds.
+
+Nothing user-specific, secret or per-run is cached. A cache read is billed at 10% of the
+input rate and writing the cache at 125%, so the Observability tab expresses the saving as
+the equivalent number of uncached request tokens — negative on the first run, positive
+once the prefix is being read back.
 
 `observability/metrics.py` turns that log into the "weeks to minutes" claim, and its whole
 design is about not overstating it:
@@ -284,6 +328,7 @@ against real fixtures.
 | `test_trade_domain.py` | tsrv/tsmt samples, trade vocabulary, trade gap register |
 | `test_chat_grounding.py` | Schema index lookups, version comparison, glossary-less rendering |
 | `test_observability.py` | Event scrubbing, rotation, aggregation, filter semantics |
+| `test_token_usage.py` | Usage normalisation per SDK, cache arithmetic, legacy events, cached system block |
 | `test_demo_assets.py` | Scenario assets and preset labels, real offline runs, metric arithmetic |
 
 The load-bearing ones are the *contract* tests — preset labels matching real widget

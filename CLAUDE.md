@@ -13,7 +13,7 @@ Trade demo target: mapping an internal guarantee application → **tsrv.001.001.
 
 Architecture, data flows and the reasoning behind each design decision:
 [`docs/DESIGN.md`](docs/DESIGN.md). User-facing usage: [`README.md`](README.md). Demo
-narration: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+walkthrough: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
 ---
 
@@ -66,6 +66,7 @@ src/
     iso_glossary.py             # Curated business definitions for ISO element names
   observability/
     run_log.py                  # Local JSONL run log — durations, counts, outcomes
+    token_usage.py              # Normalises Anthropic/LangChain token usage; cache maths
     metrics.py                  # Measured run time vs stated manual baselines
   ui/
     theme.py                    # CSS, hero and section helpers
@@ -87,7 +88,7 @@ data/
   standards/                    # Vendored XSDs — pain, pacs, camt, tsrv, tsmt (9 versions)
 docs/
   DESIGN.md                     # Architecture, data flows, design decisions, non-goals
-  DEMO_SCRIPT.md                # 12-minute demo narration, objections, recovery steps
+  DEMO_SCRIPT.md                # Guided walkthrough, common questions, troubleshooting
 logs/
   swiftsage.log                 # Rotating log — 5MB × 3 files
   runs.jsonl                    # Local run log — one JSON event per run (git-ignored)
@@ -105,7 +106,22 @@ logs/
   other tab renders blank until reload. Missing-key and bad-input paths set a flag or
   `None` and let the run finish instead.
 - **Field mapper uses Claude directly** (Anthropic SDK) — not LangChain — for a single
-  structured JSON call. `max_tokens=16000` to avoid truncation on 46-field payloads.
+  structured JSON call. `max_tokens=16000` to avoid truncation on 46-field payloads. The
+  stable part of the prompt (`system_prompt()` — element reference, business rules, output
+  schema) is sent as a cached system block; only the field list goes in the user message.
+- **Both model callers cache their system prompt** — the block carries
+  `cache_control: {"type": "ephemeral"}`. Nothing per-run, user-specific or secret is ever
+  put in a cached block, because a prefix that varies is never served from cache.
+- **Token usage is recorded per request** — `src/observability/token_usage.py` normalises
+  what each SDK reports (the Anthropic SDK excludes cached tokens from `input_tokens`,
+  LangChain folds them in) so `input_tokens` always means the whole prompt. Model-backed
+  events carry `llm_calls`, `input_tokens`, `output_tokens`, `total_tokens`,
+  `cache_read_tokens`, `cache_write_tokens`, `system_prompt_tokens` and
+  `system_prompt_measured`. The API reports no separate system-prompt figure, so
+  `system_prompt_tokens` is the cached prefix it *did* report — the system block is the
+  only cached content — and falls back to a flagged character-count estimate only when
+  nothing was cached. Numeric detail values bypass secret redaction, or every count under a
+  `*_tokens` key would be written as `[redacted]`.
 - **A run maps at most `MAX_MAPPED_FIELDS` (20) source fields** — `select_fields()` in
   `field_mapper.py` drops repeated occurrences of an already-mapped structure and ranks
   the rest on business relevance. The remainder are reported as deferred in the UI and as
@@ -208,7 +224,7 @@ logs/
 
 (macOS/Linux: `.venv/bin/python -m pytest tests/ -q`)
 
-200 tests across `test_comparator.py`, `test_observability.py`, `test_diff_classification.py`,
+219 tests across `test_comparator.py`, `test_observability.py`, `test_token_usage.py`, `test_diff_classification.py`,
 `test_impact_and_bundle.py`, `test_trade_domain.py`, `test_transform_advisor.py`,
 `test_chat_grounding.py` and `test_demo_assets.py`. They run without an Anthropic API key — the Claude calls in
 `field_mapper.py` are the only part not covered.

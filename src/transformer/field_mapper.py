@@ -12,6 +12,7 @@ from typing import List
 
 import anthropic
 
+from src.observability.token_usage import TokenUsage
 from src.transformer import mapping_validator
 from src.transformer.message_parser import InternalField
 from src.transformer.target_schema import UNCHECKED, TargetSchema
@@ -258,6 +259,24 @@ For UNMAPPED fields: set iso20022_xpath and iso20022_element to empty string.
 """
 
 
+def system_prompt(target_message_type: str) -> str:
+    """
+    The part of the prompt that depends only on the target message.
+
+    Element reference, domain rules and output schema are identical for every
+    run against the same target and dwarf the field list, so they are sent as a
+    cached system block; only the fields themselves vary per run.
+    """
+    context, rules, domain = target_context(target_message_type)
+    return f"""You are an ISO 20022 expert helping a Business Analyst map a bank's internal {domain} message to {target_message_type}.
+
+{context}
+
+Rules:
+{rules}
+{_MAPPING_SCHEMA}"""
+
+
 @dataclass
 class MappedField:
     source_field: str
@@ -282,6 +301,9 @@ class FieldMapper:
         if not api_key:
             raise ValueError("Anthropic API key not set — enter it in the sidebar.")
         self._client = anthropic.Anthropic(api_key=api_key)
+        # Tokens the last `map()` call cost — read by the caller for the run log.
+        self.last_usage = TokenUsage()
+        self.last_system_prompt = ""
 
     def map(self, fields: List[InternalField], target_message_type: str) -> List[MappedField]:
         """
@@ -296,20 +318,11 @@ class FieldMapper:
             + (f"  [{f.description}]" if getattr(f, "description", "") else "")
             for f in selected
         )
-        context, rules, domain = target_context(target_message_type)
-
-        prompt = f"""You are an ISO 20022 expert helping a Business Analyst map a bank's internal {domain} message to {target_message_type}.
-
-{context}
-
-The internal message contains these fields:
+        system = system_prompt(target_message_type)
+        prompt = f"""The internal message contains these fields:
 {field_list}
 
-For each internal field, determine its ISO 20022 mapping.
-
-Rules:
-{rules}
-{_MAPPING_SCHEMA}"""
+For each internal field, determine its ISO 20022 mapping."""
 
         model = os.environ.get("AGENT_MODEL", "claude-sonnet-4-6")
         log.info(
@@ -319,10 +332,25 @@ Rules:
         message = self._client.messages.create(
             model=model,
             max_tokens=16000,
+            # The element reference for a target is large and unchanged between
+            # runs, so it is cached rather than re-billed at the full input rate.
+            system=[{
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }],
             messages=[{"role": "user", "content": prompt}],
         )
-        log.info("FieldMapper: response stop_reason=%s, output_tokens=%s",
-                 message.stop_reason, message.usage.output_tokens)
+        self.last_system_prompt = system
+        self.last_usage = TokenUsage.from_anthropic(message.usage)
+        log.info(
+            "FieldMapper: stop_reason=%s, in=%s out=%s (cache read %s / write %s)",
+            message.stop_reason,
+            self.last_usage.input_tokens,
+            self.last_usage.output_tokens,
+            self.last_usage.cache_read_tokens,
+            self.last_usage.cache_write_tokens,
+        )
 
         raw = message.content[0].text.strip()
         # Strip markdown code fences if present

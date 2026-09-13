@@ -19,6 +19,7 @@ from langgraph.prebuilt import create_react_agent
 
 from config.settings import settings
 from src.observability import run_log
+from src.observability.token_usage import TokenUsage
 from src.agent.tools import (
     analyze_internal_message,
     batch_compare_xml_folders,
@@ -111,6 +112,27 @@ RESPONSE STYLE FOR BA/PO AUDIENCE:
 Always reason step-by-step. Surface open questions that need business decisions rather
 than silently defaulting. When the user uploads files, they are available at the paths shown in chat.
 """
+
+def _system_block() -> list[dict]:
+    """
+    The system prompt as a cacheable content block.
+
+    It is long, identical on every turn, and re-sent with the whole history each
+    time the ReAct loop calls the model, so it is by far the cheapest thing to
+    cache. Anthropic serves a cache hit at a tenth of the input rate; a prompt
+    below the model's cacheable minimum simply behaves as if uncached.
+    """
+    return [{
+        "type": "text",
+        "text": SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }]
+
+
+def _usage_of(message) -> TokenUsage:
+    """Token usage carried by one streamed chunk or completed message."""
+    return TokenUsage.from_langchain(getattr(message, "usage_metadata", None))
+
 
 def _extract_text(content) -> str:
     """Safely extract a plain string from an AIMessageChunk content value.
@@ -211,14 +233,20 @@ class SWIFTAgent:
             messages = self._build_messages(question)
             result = self._graph.invoke({"messages": messages})
             answer = _extract_text(result["messages"][-1].content)
+            usage = sum(
+                (_usage_of(m) for m in result["messages"]), TokenUsage()
+            )
             self._update_history(question, answer)
             self._record_turn(
                 question, answer, _tool_names(result["messages"]), started, "ok",
+                usage=usage,
             )
             return answer
         except Exception as exc:
             log.error("Agent error: %s", exc, exc_info=True)
-            self._record_turn(question, "", [], started, "error", error=str(exc))
+            self._record_turn(
+                question, "", [], started, "error", error=str(exc),
+            )
             return f"Agent encountered an error: {exc}"
 
     def stream(self, question: str) -> Iterator[str]:
@@ -231,6 +259,7 @@ class SWIFTAgent:
         messages = self._build_messages(question)
         full_answer: list[str] = []
         tools_called: list[str] = []
+        usage = TokenUsage()
         turn_started = time.perf_counter()
         status = "ok"
         error: str = ""
@@ -270,6 +299,10 @@ class SWIFTAgent:
 
                 # ── Agent tokens (final answer, streamed) ─────────────
                 elif node == "agent" and isinstance(chunk, AIMessageChunk):
+                    # Usage arrives on its own chunks: the first carries the
+                    # prompt, the last the completion, one pair per model call
+                    # the ReAct loop makes.
+                    usage += _usage_of(chunk)
                     text = _extract_text(chunk.content)
                     if text:
                         full_answer.append(text)
@@ -285,7 +318,7 @@ class SWIFTAgent:
                 self._update_history(question, "".join(full_answer))
             self._record_turn(
                 question, "".join(full_answer), tools_called,
-                turn_started, status, error=error,
+                turn_started, status, error=error, usage=usage,
             )
 
     def clear_history(self) -> None:
@@ -305,6 +338,7 @@ class SWIFTAgent:
         started: float,
         status: str,
         error: str = "",
+        usage: Optional[TokenUsage] = None,
     ) -> None:
         """Log the shape of a chat turn — counts and tool names, never content."""
         detail: dict = {
@@ -316,6 +350,7 @@ class SWIFTAgent:
                 1 for name in tools_called if name in GROUNDING_TOOLS
             ),
             "history_turns": len(self.chat_history) // 2,
+            **(usage.as_detail(SYSTEM_PROMPT) if usage else {}),
         }
         if error:
             detail["error"] = error
@@ -334,7 +369,7 @@ class SWIFTAgent:
         constructor kwargs) is compatible with every LangGraph version.
         """
         return (
-            [SystemMessage(content=SYSTEM_PROMPT)]
+            [SystemMessage(content=_system_block())]
             + self.chat_history
             + [HumanMessage(content=question)]
         )

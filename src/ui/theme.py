@@ -50,8 +50,9 @@ html, body, .stApp, [class*="css"] {{
         var(--ss-canvas);
     color: var(--ss-ink);
 }}
+[data-testid="stHeader"] {{ background: transparent !important; }}
 [data-testid="stMain"] .block-container {{
-    padding-top: 1.6rem !important;
+    padding-top: 4.6rem !important;
     padding-bottom: 6rem !important;
     max-width: 1320px;
 }}
@@ -188,6 +189,26 @@ h1, h2, h3, h4 {{ color: var(--ss-ink); letter-spacing: -.015em; font-weight: 70
     font-weight: 500 !important;
     transition: all .18s ease !important;
 }}
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button,
+[data-testid="stSidebar"] button[data-testid*="FormSubmit"] {{
+    background: linear-gradient(120deg, {INDIGO} 0%, {TEAL} 130%) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 6px 16px rgba(79,70,229,.35) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button,
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button *,
+[data-testid="stSidebar"] button[data-testid*="FormSubmit"],
+[data-testid="stSidebar"] button[data-testid*="FormSubmit"] * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button:hover,
+[data-testid="stSidebar"] button[data-testid*="FormSubmit"]:hover {{
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}}
 [data-testid="stSidebar"] .stButton button:hover {{
     background: linear-gradient(120deg, {INDIGO} 0%, {TEAL} 130%) !important;
     border-color: transparent !important;
@@ -202,12 +223,18 @@ h1, h2, h3, h4 {{ color: var(--ss-ink); letter-spacing: -.015em; font-weight: 70
 [data-testid="stSidebar"] a {{ color: {TEAL} !important; }}
 
 /* ── Tabs ──────────────────────────────────────────────────────────────── */
+[data-testid="stTabs"] {{ margin-bottom: 6px; }}
 [data-testid="stTabs"] [role="tablist"] {{
     background: var(--ss-surface);
     border: 1px solid var(--ss-line);
     border-radius: 14px;
-    padding: 5px;
+    padding: 6px 8px;
     gap: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 4px;
+    overflow: visible !important;
     box-shadow: var(--ss-shadow);
     border-bottom: 1px solid var(--ss-line) !important;
 }}
@@ -216,7 +243,14 @@ h1, h2, h3, h4 {{ color: var(--ss-ink); letter-spacing: -.015em; font-weight: 70
     color: var(--ss-muted) !important;
     font-weight: 600 !important;
     font-size: .9rem !important;
-    padding: 7px 18px !important;
+    padding: 8px 16px !important;
+    height: auto !important;
+    min-height: 38px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    white-space: nowrap !important;
+    flex: 0 0 auto !important;
     border: none !important;
     background: transparent !important;
     transition: all .18s ease !important;

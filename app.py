@@ -292,10 +292,10 @@ with tab_demo:
                     st.success(f"Loaded — open the **{scenario.tab}** tab.")
 
             with col_notes:
-                with st.expander("🎙️ What to say"):
+                with st.expander("🎙️ Current Use case"):
                     for point in scenario.talking_points:
                         st.markdown(f"- {point}")
-                with st.expander("👀 What to point at"):
+                with st.expander("👀 What the tool does"):
                     for point in scenario.watch_for:
                         st.markdown(f"- {point}")
         st.write("")
@@ -578,6 +578,7 @@ with tab_transform:
                     gap_table_origin=provenance.gap_table_origin,
                     path_checks=_validator.summarise(mappings),
                     doc_bytes=len(doc_bytes or b""),
+                    **mapper.last_usage.as_detail(mapper.last_system_prompt),
                 )
 
             except Exception as exc:
@@ -1114,6 +1115,54 @@ with tab_obs:
                     for kind, row in stats["by_kind"].items()
                 ]).set_index("Activity"),
                 use_container_width=True,
+            )
+
+        usage = stats["tokens"]
+        if usage.calls:
+            st.write("")
+            section(
+                "Model token usage",
+                "Reported by the API for every request and response in the "
+                "selected runs. The system prompt is sent as a cached block, so "
+                "it is billed once and read back cheaply on later calls.",
+            )
+            hit_rate = usage.cache_hit_rate
+            stat_cards([
+                ("Model calls", usage.calls, "requests to Claude", "#4F46E5"),
+                ("Request tokens", f"{usage.input_tokens:,}",
+                 "prompt, cached included", "#0EA5E9"),
+                ("Response tokens", f"{usage.output_tokens:,}",
+                 "completions", "#10B981"),
+                ("System prompt", f"{usage.cached_prefix_tokens:,}",
+                 "cached block per call", "#8B5CF6"),
+                ("Cache hit", f"{hit_rate}%" if hit_rate is not None else "—",
+                 "of request tokens read from cache", "#F59E0B"),
+            ])
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Activity": kind_labels.get(kind, kind),
+                        "Model calls": row.calls,
+                        "Request": row.input_tokens,
+                        "— new": row.uncached_input_tokens,
+                        "— cache read": row.cache_read_tokens,
+                        "— cache written": row.cache_write_tokens,
+                        "Response": row.output_tokens,
+                        "Total": row.total_tokens,
+                    }
+                    for kind, row in stats["tokens_by_kind"].items()
+                ]).set_index("Activity"),
+                use_container_width=True,
+            )
+            st.caption(
+                f"Prompt caching avoided the equivalent of "
+                f"**{usage.tokens_saved_by_cache:,}** uncached request tokens "
+                "(a cache read is billed at 10% of the input rate, writing the "
+                "cache at 125%). The system-prompt figure is the cached prefix "
+                "the API reported; where a prompt was too short to cache it is "
+                "an estimate from its character count instead. Runs without a "
+                "model call — XML Diff, the offline demo scenarios — cost no "
+                "tokens and are absent from this table."
             )
 
         effort = metrics.effort_summary(events)

@@ -24,6 +24,8 @@ from pathlib import Path
 from statistics import median
 from typing import Any, Iterator, Optional, Sequence
 
+from src.observability.token_usage import TokenUsage, from_detail
+
 _DEFAULT_PATH = Path(__file__).resolve().parents[2] / "logs" / "runs.jsonl"
 _MAX_BYTES = 2 * 1024 * 1024
 
@@ -100,6 +102,10 @@ def clear() -> None:
 # ── Redaction ──────────────────────────────────────────────────────────────────
 
 def _looks_secret(key: str, value: Any) -> bool:
+    # A number cannot be a credential, and token *counts* are recorded under
+    # keys that would otherwise trip the "token" hint.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return False
     if any(hint in key.lower() for hint in _SECRET_HINTS):
         return True
     if isinstance(value, str):
@@ -268,6 +274,15 @@ def summarise(events: Sequence[RunEvent]) -> dict[str, Any]:
     chat_turns = [e for e in events if e.kind == CHAT]
     grounded = [e for e in chat_turns if e.detail.get("grounding_tool_calls")]
 
+    tokens = TokenUsage()
+    tokens_by_kind: dict[str, TokenUsage] = {}
+    for event in events:
+        usage = from_detail(event.detail)
+        if not usage.calls:
+            continue
+        tokens += usage
+        tokens_by_kind[event.kind] = tokens_by_kind.get(event.kind, TokenUsage()) + usage
+
     return {
         "events": len(events),
         "errors": sum(1 for e in events if e.status == "error"),
@@ -278,4 +293,6 @@ def summarise(events: Sequence[RunEvent]) -> dict[str, Any]:
         "grounded_rate": (
             round(100 * len(grounded) / len(chat_turns)) if chat_turns else None
         ),
+        "tokens": tokens,
+        "tokens_by_kind": tokens_by_kind,
     }

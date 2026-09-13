@@ -6,7 +6,7 @@ Covers the payment families (`pain`, `pacs`, `camt`) and a trade-finance demo (`
 
 Built with **Claude** (claude-sonnet-4-6), **LangGraph**, and **Streamlit**.
 
-**Where to go next:** [Quick Start](#quick-start) to run it · [Using SwiftSage](#using-swiftsage) for a task-by-task walkthrough · [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) to present it · [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the reasoning behind it.
+**Where to go next:** [Quick Start](#quick-start) to run it · [Using SwiftSage](#using-swiftsage) for a task-by-task walkthrough · [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a guided walkthrough · [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the reasoning behind it.
 
 ### What works without an Anthropic API key
 
@@ -25,8 +25,8 @@ Built with **Claude** (claude-sonnet-4-6), **LangGraph**, and **Streamlit**.
 - **AI Agent Chat** — Conversational ISO 20022 expert for a BA/PO audience. Answers about specific fields are **grounded in the vendored XSDs**: the agent looks the element up by ISO name, path or business phrase and cites the message version, path, cardinality, type, constraints and code list it used. If the library does not cover the element, it says so instead of inventing one. Starter questions are grouped into domain packs — Payments, Cash, Trade, Settlement, Securities & FX.
 - **XML Diff** — Semantic comparison of two ISO 20022 XML files; classifies each difference as BREAKING / WARNING / INFO / BENIGN with an explainable 0–100 breaking-change score. Classification resolves real element names (so it works on namespaced production files) and consults the target XSD for cardinality, so removing a mandatory element grades differently from removing an optional one. Exports a business-readable impact assessment as Word or Markdown.
 - **Standards Library** — Browse the vendored XSD packages, or sync additional ones from the ISO 20022 GitHub repository.
-- **Observability** — Every chat turn, grounding lookup, mapping run and comparison is timed and appended to a local JSONL run log. The Observability tab shows run counts, median and slowest duration per activity, how many chat turns actually called a grounding tool, tool usage and errors. It also contrasts measured run time with a stated manual baseline (40 h for a requirements document, 8 h for an impact assessment, 30 min for a specialist field answer, each overridable via `SWIFTSAGE_BASELINE_*_HOURS`) so the "weeks to minutes" claim comes with its assumptions on screen. Only runs that delivered something are credited — a failed comparison earns nothing, and a chat turn only counts if it actually consulted the schemas. No external service, no key, works offline.
-- **Demo scenarios** — Four rehearsed scenarios in the Demo tab, each phrased as the business question it answers and carrying its own talking points. The two XML Diff scenarios (a `pain.001` version upgrade and a trade guarantee amendment) run on one click with no API key; the mapping and grounded-chat scenarios preload their inputs. Narration for the whole demo is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+- **Observability** — Every chat turn, grounding lookup, mapping run and comparison is timed and appended to a local JSONL run log. The Observability tab shows run counts, median and slowest duration per activity, how many chat turns actually called a grounding tool, tool usage and errors. For anything that called Claude it also reports the tokens the API charged for — request tokens, response tokens, the size of the cached system prompt, and how much of each request was served from the prompt cache rather than re-billed. It also contrasts measured run time with a stated manual baseline (40 h for a requirements document, 8 h for an impact assessment, 30 min for a specialist field answer, each overridable via `SWIFTSAGE_BASELINE_*_HOURS`) so the "weeks to minutes" claim comes with its assumptions on screen. Only runs that delivered something are credited — a failed comparison earns nothing, and a chat turn only counts if it actually consulted the schemas. No external service, no key, works offline.
+- **Demo scenarios** — Four rehearsed scenarios in the Demo tab, each phrased as the business question it answers and carrying its own explanatory notes. The two XML Diff scenarios (a `pain.001` version upgrade and a trade guarantee amendment) run on one click with no API key; the mapping and grounded-chat scenarios preload their inputs. A guided walkthrough of all four is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 - **Built-in samples** — Meridian Bank internal messages for pain.001, pacs.008 (XML and CSV spec), camt.053 (JSON) and a trade guarantee, plus XML Diff scenarios: a `pain.001.001.09 → .12` version upgrade, a guarantee amendment, and a `tsmt.011.001.03 → .04` upgrade.
 
 ---
@@ -110,9 +110,9 @@ Paste your Anthropic API key in the **sidebar** and press **Apply key** — it o
 3. If the vendored library does not cover the element, SwiftSage says so rather than inventing a definition.
 4. Confirm it really looked things up: **📈 Observability** reports the share of chat turns that called a grounding tool.
 
-### Present it
+### Walk through the built-in scenarios
 
-**🎬 Demo** → four rehearsed scenarios, each phrased as the business question it answers, with talking points and what to point at. The two XML Diff scenarios run on a single click with no key. Full narration in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+**🎬 Demo** → four rehearsed scenarios, each phrased as the business question it answers, with notes explaining the use case and what the tool does with it. The two XML Diff scenarios run on a single click with no key. Each is explained end to end in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
 ---
 
@@ -152,10 +152,11 @@ SwiftSage/
 │   │   └── iso_glossary.py             # Curated business definitions for ISO element names
 │   ├── observability/
 │   │   ├── run_log.py                  # Local JSONL run log (durations, counts, outcomes)
+│   │   ├── token_usage.py              # Normalises SDK token usage; prompt-cache arithmetic
 │   │   └── metrics.py                  # Measured run time vs stated manual baselines
 │   ├── ui/
 │   │   ├── theme.py                    # CSS, hero and section helpers
-│   │   ├── demo_scenarios.py           # One-click demo scenarios + talking points
+│   │   ├── demo_scenarios.py           # One-click demo scenarios + explanatory notes
 │   │   └── prompt_packs.py             # Chat starter questions per business domain
 │   └── utils/helpers.py
 ├── data/
@@ -175,7 +176,7 @@ SwiftSage/
 │       ├── pain001_v12_upgrade.xml         # pain.001.001.12 upgrade of the baseline
 │       └── pacs008_sample.xml              # ISO 20022 pacs.008 reference
 ├── docs/
-│   ├── DEMO_SCRIPT.md                       # 12-minute demo narration and objection handling
+│   ├── DEMO_SCRIPT.md                       # Guided walkthrough of the four demo scenarios
 │   └── DESIGN.md                            # Architecture, data flows and design decisions
 ├── logs/
 │   ├── swiftsage.log                       # Rotating application log
@@ -189,12 +190,12 @@ SwiftSage/
 
 | Tab | What it does |
 |-----|-------------|
-| **🎬 Demo** | Four rehearsed scenarios — one click loads (and for the diff scenarios, runs) the inputs, with talking points and what to point at |
+| **🎬 Demo** | Four rehearsed scenarios — one click loads (and for the diff scenarios, runs) the inputs, with notes on the use case and what the tool does |
 | **💬 Chat** | Conversational ISO 20022 agent — streaming answers, BA/PO persona, schema-grounded field answers, domain starter packs |
 | **🔄 Transform Advisor** | Map an internal message (XML / JSON / CSV / XLSX) → ISO 20022, gap analysis, download requirements doc |
 | **🔍 XML Diff** | Semantic diff of two ISO 20022 XMLs with breaking-change scoring and impact-assessment export |
 | **📚 Library** | Browse the vendored and downloaded XSD schemas |
-| **📈 Observability** | Local run log — durations, effort saved vs the manual baseline, grounded-chat share, tool usage, errors; download or clear the JSONL |
+| **📈 Observability** | Local run log — durations, token usage and prompt-cache hits per activity, effort saved vs the manual baseline, grounded-chat share, tool usage, errors; download or clear the JSONL |
 | **ℹ️ Help** | Quick-start guide and classification reference |
 
 ---
@@ -272,6 +273,8 @@ Never put secrets here — the API key belongs in the sidebar.
 | An unexpected "family mismatch" banner | The source vocabulary disagrees with the selected target message — usually the wrong target, occasionally an unusual internal schema. |
 | Standards Library sync fails | Network-dependent and optional. The vendored XSDs in `data/standards/` cover every demo path offline. |
 | Observability tab is empty | No runs recorded yet in `logs/runs.jsonl`, or it was cleared from the tab. |
+| No token usage shown | Only Chat and the Transform Advisor call the model. XML Diff, the Library and the two offline demo scenarios cost no tokens, so they contribute no token rows. |
+| Cache hit stays at 0% | The first run writes the cache; later runs read it. Anthropic's ephemeral cache also expires after a few minutes of inactivity, and a prompt below the model's cacheable minimum is never cached at all. |
 
 ---
 
