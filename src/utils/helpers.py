@@ -61,6 +61,9 @@ ISO20022_MESSAGE_SETS = {
     "colr": "Collateral Management",
     "sese": "Securities Settlement",
     "seev": "Securities Events",
+    "tsrv": "Trade Services — Undertakings (guarantees and standby LCs)",
+    "tsmt": "Trade Services Management",
+    "tsin": "Trade Services Initiation",
 }
 
 
@@ -92,6 +95,32 @@ def detect_namespace(xml_path: str | Path) -> Optional[str]:
         return None
     ns = root.nsmap.get(None) or (root.tag.split("}")[0].lstrip("{") if root.tag.startswith("{") else None)
     return ns
+
+
+def namespace_of(element: etree._Element) -> str:
+    """Return the namespace URI of an element ('' when it has none)."""
+    tag = element.tag
+    return tag.split("}")[0].lstrip("{") if isinstance(tag, str) and "}" in tag else ""
+
+
+def rewrite_namespace(
+    root: etree._Element, old_ns: str, new_ns: str
+) -> etree._Element:
+    """
+    Return a copy of *root* with every element moved from *old_ns* to *new_ns*.
+
+    Comparing two message versions (pain.001.001.09 vs .12) means comparing two
+    namespaces, which xmldiff refuses to do; aligning them lets the structural
+    diff run and the version change be reported on its own. The tree is rebuilt
+    from its serialised form because an element's namespace declarations cannot
+    be edited in place.
+    """
+    if old_ns == new_ns:
+        return root
+    xml = etree.tostring(root, encoding="utf-8").replace(
+        old_ns.encode("utf-8"), new_ns.encode("utf-8")
+    )
+    return etree.fromstring(xml)
 
 
 def xpath_tag(element: etree._Element) -> str:

@@ -26,9 +26,23 @@ class ChangeType(str, Enum):
 
 # Tags whose removal/modification is always breaking
 _ALWAYS_BREAKING_TAGS = {
+    # Payments
     "BIC", "IBAN", "Ccy", "Amt", "InstdAmt", "IntrBkSttlmAmt",
     "SttlmMtd", "PmtMtd", "SvcLvl", "Cd", "MndtRltdInf",
     "PmtTpInf", "ReqdExctnDt", "IntrBkSttlmDt",
+    # Trade finance — terms of the bank's undertaking
+    "AnyBIC", "BICFI", "IssncTp", "PlusTlrnce", "ConfInd",
+    "MltplDmndInd", "PrtlDmndInd", "TrfInd", "RuleId", "AplblLaw",
+}
+
+# Trade-finance branches that define who may claim, how much, until when and
+# under which rules. Any value change inside them alters the bank's exposure,
+# whatever the leaf element happens to be called.
+_BREAKING_CONTEXT_TAGS = {
+    "UdrtkgAmt", "LclUdrtkgAmt", "XpryDtls", "XpryTerms", "AutoXtnsn",
+    "AutomtcAmtVartn",
+    "GovncRulesAndLaw", "UdrtkgTermsAndConds", "UdrtkgWrdg",
+    "Applcnt", "Bnfcry", "PresntnDtls",
 }
 
 # Tags that are benign when changed (correlation IDs, timestamps, etc.)
@@ -43,12 +57,26 @@ _SIGNIFICANT_OPTIONAL_TAGS = {
 }
 
 
+# Default score weight per diff, by severity
+DEFAULT_WEIGHTS: dict["Severity", float] = {
+    Severity.BREAKING: 10,
+    Severity.WARNING: 3,
+    Severity.INFO: 1,
+    Severity.BENIGN: 0,
+}
+
+
 class DiffClassifier:
     """
     Classify a single diff entry into a Severity level.
 
     Can be sub-classed or configured via custom rule functions.
     """
+
+    def __init__(self, weights: Optional[dict["Severity", float]] = None):
+        self.weights: dict[Severity, float] = dict(DEFAULT_WEIGHTS)
+        if weights:
+            self.weights.update(weights)
 
     def classify(
         self,
@@ -69,7 +97,9 @@ class DiffClassifier:
             is_mandatory: Whether the element is mandatory per schema
                           (None = unknown).
         """
-        local_tag = xpath.split("/")[-1].split("[")[0]
+        local_tag = xpath.split("/")[-1].split("[")[0].lstrip("@")
+        segments = {s.split("[")[0].lstrip("@") for s in xpath.split("/")}
+        liability_context = bool(segments & _BREAKING_CONTEXT_TAGS)
 
         # ── Benign first ────────────────────────────────────────────────
         if local_tag in _BENIGN_TAGS:
@@ -79,7 +109,7 @@ class DiffClassifier:
         if change_type == ChangeType.REMOVED:
             if is_mandatory is True or local_tag in _ALWAYS_BREAKING_TAGS:
                 return Severity.BREAKING
-            if local_tag in _SIGNIFICANT_OPTIONAL_TAGS:
+            if local_tag in _SIGNIFICANT_OPTIONAL_TAGS or liability_context:
                 return Severity.WARNING
             return Severity.INFO
 
@@ -87,11 +117,11 @@ class DiffClassifier:
         if change_type == ChangeType.ADDED:
             if is_mandatory is True:
                 return Severity.BREAKING
-            return Severity.INFO
+            return Severity.WARNING if liability_context else Severity.INFO
 
         # ── Critical field value changed ────────────────────────────────
-        if change_type == ChangeType.MODIFIED:
-            if local_tag in _ALWAYS_BREAKING_TAGS:
+        if change_type in (ChangeType.MODIFIED, ChangeType.ATTRIBUTE_CHANGED):
+            if local_tag in _ALWAYS_BREAKING_TAGS or liability_context:
                 return Severity.BREAKING
             # Amount / currency changes are always breaking
             if "Amt" in local_tag or "Ccy" in local_tag:
@@ -115,12 +145,31 @@ class DiffClassifier:
         """
         if not classifications:
             return 0.0
-        weights = {
-            Severity.BREAKING: 10,
-            Severity.WARNING: 3,
-            Severity.INFO: 1,
-            Severity.BENIGN: 0,
-        }
-        total = sum(weights[s] for s in classifications)
-        max_possible = len(classifications) * 10
+        total = sum(self.weights[s] for s in classifications)
+        max_possible = len(classifications) * max(self.weights.values())
+        if max_possible == 0:
+            return 0.0
         return round(min(total / max_possible * 100, 100.0), 1)
+
+    def score_breakdown(self, classifications: list[Severity]) -> list[dict]:
+        """
+        Per-severity contribution to the score, so the number can be explained
+        to a business audience instead of being asserted.
+        """
+        if not classifications:
+            return []
+        max_possible = len(classifications) * max(self.weights.values())
+        rows = []
+        for severity in (Severity.BREAKING, Severity.WARNING, Severity.INFO, Severity.BENIGN):
+            count = sum(1 for s in classifications if s == severity)
+            if not count:
+                continue
+            points = count * self.weights[severity]
+            rows.append({
+                "severity": severity.value,
+                "count": count,
+                "weight": self.weights[severity],
+                "points": points,
+                "score_contribution": round(points / max_possible * 100, 1) if max_possible else 0.0,
+            })
+        return rows

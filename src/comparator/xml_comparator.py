@@ -16,20 +16,25 @@ Key features
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from lxml import etree
-from xmldiff import formatting, main as xmldiff_main
+from xmldiff import formatting, main as xmldiff_main, patch as xmldiff_patch
 from xmldiff.actions import (
-    DeleteNode, InsertNode, MoveNode, RenameNode,
-    UpdateAttrib, UpdateTextIn,
+    DeleteAttrib, DeleteNode, InsertAttrib, InsertNode, MoveNode,
+    RenameAttrib, RenameNode, UpdateAttrib, UpdateTextAfter, UpdateTextIn,
 )
 
 from src.comparator.canonicalizer import canonicalize, to_canonical_string
 from src.comparator.diff_classifier import ChangeType, DiffClassifier, Severity
-from src.utils.helpers import get_logger, load_schema, safe_read_xml, xpath_tag
+from src.comparator.schema_cardinality import SchemaCardinality
+from src.utils.helpers import (
+    get_logger, load_schema, message_type_from_namespace, namespace_of,
+    rewrite_namespace, safe_read_xml, xpath_tag,
+)
 
 log = get_logger(__name__)
 
@@ -38,21 +43,25 @@ log = get_logger(__name__)
 
 @dataclass
 class DiffEntry:
-    xpath: str
+    xpath: str                      # business path, e.g. /Document/GrpHdr/CtrlSum
     change_type: ChangeType
     old_value: Optional[str]
     new_value: Optional[str]
     severity: Severity
     explanation: str = ""
+    raw_xpath: str = ""             # positional path emitted by xmldiff
+    element: str = ""               # local element (or @attribute) name
 
     def to_dict(self) -> dict:
         return {
             "xpath": self.xpath,
+            "element": self.element,
             "change_type": self.change_type.value,
             "old_value": self.old_value,
             "new_value": self.new_value,
             "severity": self.severity.value,
             "explanation": self.explanation,
+            "raw_xpath": self.raw_xpath,
         }
 
 
@@ -67,6 +76,11 @@ class ComparisonResult:
     diffs: list[DiffEntry] = field(default_factory=list)
     breaking_score: float = 0.0
     summary: str = ""
+    schema_aware: bool = False
+    score_breakdown: list[dict] = field(default_factory=list)
+    message_type_a: Optional[str] = None
+    message_type_b: Optional[str] = None
+    parse_error: Optional[str] = None   # set when a document could not be read
 
     # ── Convenience filters ────────────────────────────────────────────────
     @property
@@ -90,6 +104,11 @@ class ComparisonResult:
             "validation_errors_a": self.validation_errors_a,
             "validation_errors_b": self.validation_errors_b,
             "breaking_score": self.breaking_score,
+            "score_breakdown": self.score_breakdown,
+            "schema_aware": self.schema_aware,
+            "message_type_a": self.message_type_a,
+            "message_type_b": self.message_type_b,
+            "parse_error": self.parse_error,
             "summary": self.summary,
             "diffs": [d.to_dict() for d in self.diffs],
         }
@@ -100,7 +119,8 @@ class ComparisonResult:
     def human_report(self) -> str:
         lines = [
             f"Comparison: {self.file_a}  vs  {self.file_b}",
-            f"Breaking-change score: {self.breaking_score}/100",
+            f"Breaking-change score: {self.breaking_score}/100"
+            + (" (schema-aware)" if self.schema_aware else " (rule-based only)"),
             f"Total diffs: {len(self.diffs)}  "
             f"(BREAKING={len(self.breaking)}, WARNING={len(self.warnings)}, "
             f"BENIGN={len(self.benign)})",
@@ -159,12 +179,14 @@ class XMLComparator:
         self,
         ignore_tags: Optional[list[str]] = None,
         classifier: Optional[DiffClassifier] = None,
+        severity_weights: Optional[dict[Severity, float]] = None,
     ):
         self.ignore_tags = ignore_tags or [
             "MsgId", "CreDtTm", "InstrId", "EndToEndId", "TxId", "UETR",
             "ClrSysRef", "PrcgDt", "AccptncDtTm",
         ]
-        self.classifier = classifier or DiffClassifier()
+        self.classifier = classifier or DiffClassifier(weights=severity_weights)
+        self.cardinality: Optional[SchemaCardinality] = None
 
     # ── Single-file comparison ─────────────────────────────────────────────
 
@@ -180,19 +202,52 @@ class XMLComparator:
         root_a = safe_read_xml(path_a)
         root_b = safe_read_xml(path_b)
 
-        if root_a is None:
-            result.summary = f"Cannot parse {path_a}"
-            return result
-        if root_b is None:
-            result.summary = f"Cannot parse {path_b}"
-            return result
+        for label, path, root in (("A", path_a, root_a), ("B", path_b, root_b)):
+            if root is None:
+                result.parse_error = (
+                    f"Document {label} ({path}) is not well-formed XML and could "
+                    f"not be compared."
+                )
+                result.summary = result.parse_error
+                return result
 
-        # ── Optional XSD validation ────────────────────────────────────
+        # ── Optional XSD validation + cardinality awareness ────────────
+        self.cardinality = None
         if schema_path:
             schema = load_schema(schema_path)
             if schema:
                 result.is_valid_a, result.validation_errors_a = self._validate(root_a, schema)
                 result.is_valid_b, result.validation_errors_b = self._validate(root_b, schema)
+            self.cardinality = SchemaCardinality.from_xsd(schema_path)
+            result.schema_aware = self.cardinality is not None
+
+        # ── Align message versions ─────────────────────────────────────
+        ns_a, ns_b = namespace_of(root_a), namespace_of(root_b)
+        version_entry: Optional[DiffEntry] = None
+        result.message_type_a = message_type_from_namespace(ns_a) or ns_a or None
+        result.message_type_b = message_type_from_namespace(ns_b) or ns_b or None
+        if ns_a != ns_b:
+            # A version upgrade (pain.001.001.09 → .12) changes the namespace on
+            # every element; xmldiff refuses to diff across namespace URIs, so
+            # document B is moved onto A's namespace and the version change is
+            # reported once, as its own diff.
+            result.message_type_a = message_type_from_namespace(ns_a) or ns_a
+            result.message_type_b = message_type_from_namespace(ns_b) or ns_b
+            root_b = rewrite_namespace(root_b, ns_b, ns_a)
+            version_entry = DiffEntry(
+                xpath=f"/{xpath_tag(root_a)}/@xmlns",
+                change_type=ChangeType.MODIFIED,
+                old_value=result.message_type_a,
+                new_value=result.message_type_b,
+                severity=Severity.BREAKING,
+                explanation=(
+                    f"Message version changed from {result.message_type_a} to "
+                    f"{result.message_type_b} — receivers validating against the "
+                    f"old schema will reject the message."
+                ),
+                raw_xpath=f"/{xpath_tag(root_a)}/@xmlns",
+                element="@xmlns",
+            )
 
         # ── Canonicalize ───────────────────────────────────────────────
         canon_a = canonicalize(root_a, ignore_tags=self.ignore_tags)
@@ -201,9 +256,14 @@ class XMLComparator:
         # ── Compute diffs via xmldiff ──────────────────────────────────
         actions = xmldiff_main.diff_trees(canon_a, canon_b)
         entries = self._actions_to_entries(actions, canon_a)
+        if version_entry is not None:
+            entries.insert(0, version_entry)
 
         result.diffs = entries
         result.breaking_score = self.classifier.breaking_score(
+            [e.severity for e in entries]
+        )
+        result.score_breakdown = self.classifier.score_breakdown(
             [e.severity for e in entries]
         )
         result.summary = self._make_summary(result)
@@ -264,79 +324,182 @@ class XMLComparator:
         except Exception as exc:
             return False, [str(exc)]
 
+    # ── XPath resolution ───────────────────────────────────────────────────
+    #
+    # xmldiff reports XPaths against the canonical tree, and for namespaced
+    # ISO 20022 documents those XPaths are positional (e.g. /*/*[2]/*[4]).
+    # Classification and reporting need the business element names, so every
+    # reported XPath is resolved back to a named path against the tree.
+    #
+    # Actions are cumulative — a later action can address a node an earlier
+    # action inserted — so resolution happens against a working copy that is
+    # patched action by action as the diff is walked.
+
+    @staticmethod
+    def _business_path(node: etree._Element) -> str:
+        parts: list[str] = []
+        current: Optional[etree._Element] = node
+        while current is not None and isinstance(current.tag, str):
+            tag = xpath_tag(current)
+            parent = current.getparent()
+            if parent is not None:
+                sibs = [s for s in parent if isinstance(s.tag, str) and xpath_tag(s) == tag]
+                if len(sibs) > 1:
+                    tag = f"{tag}[{sibs.index(current) + 1}]"
+            parts.append(tag)
+            current = parent
+        return "/" + "/".join(reversed(parts))
+
+    @staticmethod
+    def _resolve(raw_xpath: str, tree: etree._Element) -> Optional[etree._Element]:
+        if not raw_xpath:
+            return None
+        try:
+            found = tree.getroottree().xpath(raw_xpath)
+        except Exception:
+            return None
+        if isinstance(found, list):
+            found = found[0] if found else None
+        return found if isinstance(found, etree._Element) else None
+
+    def _named_path(self, raw_xpath: str, tree: etree._Element) -> str:
+        """Resolve a positional XPath to a named business path (best effort)."""
+        node = self._resolve(raw_xpath, tree)
+        if node is not None:
+            return self._business_path(node)
+        return raw_xpath
+
+    @staticmethod
+    def _inside_added(path: str, added: dict[str, "DiffEntry"]) -> bool:
+        """True when `path` sits inside a branch already reported as added."""
+        return any(path.startswith(parent + "/") for parent in added)
+
     def _actions_to_entries(
         self, actions: list, reference_tree: etree._Element
     ) -> list[DiffEntry]:
         entries: list[DiffEntry] = []
+        patcher = xmldiff_patch.Patcher()
+        working = deepcopy(reference_tree)
+        added: dict[str, DiffEntry] = {}
 
         for action in actions:
-            xpath = getattr(action, "node", None) or ""
-            if hasattr(xpath, "__class__") and not isinstance(xpath, str):
-                xpath = str(xpath)
+            raw_xpath = str(getattr(action, "node", None) or getattr(action, "target", "") or "")
 
             change_type: ChangeType
             old_val: Optional[str] = None
             new_val: Optional[str] = None
+            inherits_optionality = False
+            path = self._named_path(raw_xpath, working)
+
+            # Tail text carries no business meaning in ISO 20022 documents.
+            if isinstance(action, UpdateTextAfter):
+                self._apply(patcher, action, working)
+                continue
 
             if isinstance(action, UpdateTextIn):
+                # xmldiff sets the text of a newly inserted element in a
+                # separate action; report it as part of the insertion.
+                if path in added:
+                    added[path].new_value = action.text
+                    self._apply(patcher, action, working)
+                    continue
                 change_type = ChangeType.MODIFIED
                 new_val = action.text
-                # Try to get old value from reference tree
-                try:
-                    old_node = reference_tree.xpath(str(action.node))
-                    if old_node:
-                        n = old_node[0] if isinstance(old_node, list) else old_node
-                        old_val = n.text if hasattr(n, "text") else None
-                except Exception:
-                    pass
+                old_val = getattr(action, "oldtext", None)
+                if old_val is None:
+                    node = self._resolve(raw_xpath, working)
+                    old_val = node.text if node is not None else None
 
-            elif isinstance(action, (DeleteNode,)):
+            elif isinstance(action, DeleteNode):
                 change_type = ChangeType.REMOVED
+                node = self._resolve(raw_xpath, working)
+                old_val = node.text if node is not None else None
 
-            elif isinstance(action, (InsertNode,)):
+            elif isinstance(action, InsertNode):
+                # `target` is the parent in the reference tree; `tag` is the new element.
                 change_type = ChangeType.ADDED
-                new_val = getattr(action, "value", None)
-                if new_val is not None:
-                    new_val = str(new_val)
+                path = f"{self._named_path(str(action.target), working)}/" \
+                       f"{etree.QName(action.tag).localname}"
+                # Elements that are mandatory *within* a newly added optional
+                # branch are not mandatory for the sender: the whole branch is
+                # optional, so they must not be graded as breaking.
+                if self._inside_added(path, added):
+                    inherits_optionality = True
 
             elif isinstance(action, MoveNode):
                 change_type = ChangeType.REORDERED
 
-            elif isinstance(action, UpdateAttrib):
-                change_type = ChangeType.ATTRIBUTE_CHANGED
-                old_val = getattr(action, "oldval", None)
-                new_val = getattr(action, "value", None)
-                if new_val is not None:
-                    new_val = str(new_val)
-
             elif isinstance(action, RenameNode):
                 change_type = ChangeType.MODIFIED
-                new_val = str(getattr(action, "newname", ""))
+                node = self._resolve(raw_xpath, working)
+                if node is not None:
+                    old_val = etree.QName(node.tag).localname
+                new_val = etree.QName(action.tag).localname
+
+            elif isinstance(action, (UpdateAttrib, InsertAttrib)):
+                change_type = ChangeType.ATTRIBUTE_CHANGED
+                attr = etree.QName(action.name).localname if "}" in action.name else action.name
+                node = self._resolve(raw_xpath, working)
+                old_val = node.get(action.name) if node is not None else None
+                new_val = str(action.value)
+                path = f"{path}/@{attr}"
+
+            elif isinstance(action, DeleteAttrib):
+                change_type = ChangeType.REMOVED
+                attr = etree.QName(action.name).localname if "}" in action.name else action.name
+                node = self._resolve(raw_xpath, working)
+                old_val = node.get(action.name) if node is not None else None
+                path = f"{path}/@{attr}"
+
+            elif isinstance(action, RenameAttrib):
+                change_type = ChangeType.MODIFIED
+                path = f"{path}/@{action.oldname}"
+                new_val = str(action.newname)
 
             else:
                 change_type = ChangeType.MODIFIED
 
-            # Derive local tag from XPath for classification
-            xpath_str = str(xpath)
+            element = path.split("/")[-1].split("[")[0]
             severity = self.classifier.classify(
-                xpath=xpath_str,
+                xpath=path,
                 change_type=change_type,
                 old_value=old_val,
                 new_value=new_val,
+                is_mandatory=False if inherits_optionality else self._is_mandatory(path),
             )
 
             entries.append(
                 DiffEntry(
-                    xpath=xpath_str,
+                    xpath=path,
                     change_type=change_type,
                     old_value=old_val,
                     new_value=new_val,
                     severity=severity,
-                    explanation=self._explain(xpath_str, change_type, severity),
+                    explanation=self._explain(path, change_type, severity),
+                    raw_xpath=raw_xpath,
+                    element=element,
                 )
             )
+            if change_type == ChangeType.ADDED:
+                added[path] = entries[-1]
+
+            self._apply(patcher, action, working)
 
         return entries
+
+    @staticmethod
+    def _apply(patcher: xmldiff_patch.Patcher, action, tree: etree._Element) -> None:
+        """Advance the working tree; path resolution degrades but never fails."""
+        try:
+            patcher.handle_action(action, tree)
+        except Exception as exc:
+            log.debug("Could not apply %s while resolving paths: %s", action, exc)
+
+    def _is_mandatory(self, path: str) -> Optional[bool]:
+        """Schema cardinality for a business path (None when unknown)."""
+        if self.cardinality is None:
+            return None
+        return self.cardinality.is_mandatory(path)
 
     def _explain(self, xpath: str, change_type: ChangeType, severity: Severity) -> str:
         tag = xpath.split("/")[-1].split("[")[0]

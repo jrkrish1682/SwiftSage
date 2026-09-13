@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import List
 
 import anthropic
 
+from src.transformer import mapping_validator
 from src.transformer.message_parser import InternalField
+from src.transformer.target_schema import UNCHECKED, TargetSchema
 from src.utils.helpers import get_logger
 
 log = get_logger(__name__)
@@ -49,6 +52,187 @@ CREDIT TRANSFER TRANSACTION INFO (CdtTrfTxInf) — one per payment:
   RmtInf/Ustrd              : Remittance info (unstructured, max 140 chars)
 """
 
+_PAYMENT_RULES = """\
+- Sort codes (format XX-XX-XX) are UK bank routing codes. They cannot map directly to BICFI. Mapping type is DERIVED — BIC must be looked up from a reference data service.
+- UK account numbers (8 digits) cannot map directly to IBAN. Mapping type is DERIVED — IBAN must be computed using the UK IBAN algorithm.
+- If a field already contains an IBAN (starts with two letters then digits), it maps DIRECTLY to CdtrAcct/Id/IBAN or DbtrAcct/Id/IBAN.
+- If a field already contains a BIC (8 or 11 chars, all caps, format XXXXGB22), it maps DIRECTLY to the relevant BICFI element.
+- Internal tracking fields (WorkflowId, ApprovalStatus, CostCentre, InternalCustomerId, Channel, BatchRef, ApprovedBy, ApprovalTimestamp, CompanyRegistrationNo) have no ISO 20022 equivalent — mark as UNMAPPED.
+- CreationDate and CreationTime should be COMBINED into GrpHdr/CreDtTm.
+- TotalAmount maps to GrpHdr/CtrlSum (DIRECT).
+- NumberOfPayments maps to GrpHdr/NbOfTxs (DIRECT).
+"""
+
+_TSRV001_CONTEXT = """
+tsrv.001.001.01 (Undertaking Issuance — the ISO 20022 equivalent of MT 760)
+key elements, all under UdrtkgIssnc/UdrtkgIssncDtls:
+
+  Id                          : Undertaking reference (max 35 chars)
+  Nm                          : Undertaking name — code list, DGAR (demand
+                                guarantee) or STBY (standby letter of credit)
+  Tp/Cd                       : Undertaking type (purpose, e.g. APAY advance
+                                payment, PERF performance)
+  IssncTp                     : Issuance type — ISSU, ISCO, ISAD, CRQL, CRQC
+  Applcnt                     : Applicant (party, repeatable)
+  Issr                        : Issuing bank (party)
+  Bnfcry                      : Beneficiary (party, repeatable)
+  DtOfIssnc                   : Date of issuance (YYYY-MM-DD)
+  PlcOfIsse                   : Place of issue (postal address)
+  AdvsgPty                    : Advising bank (party)
+  UdrtkgAmt/Amt + @Ccy        : Undertaking amount and currency
+  UdrtkgAmt/PlusTlrnce        : Positive tolerance, as a percentage
+  XpryDtls/XpryTerms/DtTm/Dt  : Expiry date
+  XpryDtls/XpryTerms/Cond     : Expiry condition (event-based expiry)
+  ConfInd                     : Confirmation indicator (true/false)
+  GovncRulesAndLaw/RuleId/Cd  : Governing rules — URDG, ISPR, UCPR, NONE
+  GovncRulesAndLaw/AplblLaw   : Applicable law (Ctry + Txt)
+  GovncRulesAndLaw/Jursdctn   : Jurisdiction (Ctry + Txt)
+  UndrlygTx                   : Underlying trade transaction — Tp, Id, TxDt,
+                                TxAmt, CtrctAmtPctg
+  PresntnDtls/Mdm/Cd          : Presentation medium — PAPR, ELEC, BOTH
+  UdrtkgTermsAndConds/Txt     : Undertaking wording (repeatable narrative)
+  MltplDmndInd, PrtlDmndInd   : Whether multiple / partial demands are allowed
+  ConfChrgsPyblBy, TrfChrgsPyblBy : Which party bears charges
+  DlvryChanl                  : Delivery channel
+  TrfInd                      : Transferability indicator
+  AddtlInf                    : Additional information (max 5 occurrences)
+
+Party structure (PartyIdentification43): Nm, PstlAdr (StrtNm, BldgNb, PstCd,
+TwnNm, Ctry) and Id/OrgId/AnyBIC for the BIC.
+"""
+
+_TRADE_RULES = """\
+- Yes/No flags in the internal message (YES/NO, Y/N) map to ISO 20022 YesNoIndicator booleans — mapping type DERIVED with the conversion stated in the business rule.
+- Guarantee product codes map to Nm, which accepts only DGAR or STBY. Anything else (e.g. documentary credit) is out of scope for this message — mark as UNMAPPED and say why.
+- Free-text governing rules such as 'URDG758' or 'ISP98' map to GovncRulesAndLaw/RuleId/Cd as URDG / ISPR (DERIVED, code-list normalisation). UCP 600 is UCPR.
+- Tolerance percentages map to UdrtkgAmt/PlusTlrnce and MnsTlrnce as percentages, never as amounts.
+- Amount plus currency: the amount maps to UdrtkgAmt/Amt and the currency to its Ccy attribute — SPLIT or COMBINED as appropriate.
+- 8-character BICs map to Id/OrgId/AnyBIC, which requires 11 characters — DERIVED, padded with 'XXX'.
+- Address lines map into PstlAdr; street name and building number are separate elements, so a single internal address line is SPLIT.
+- Expiry place has no dedicated element: it belongs in XpryDtls/AddtlXpryInf or the undertaking wording — state which in the business rule.
+- Internal credit and workflow fields (CreditApprovalStatus, ApprovedBy, ApprovalTimestamp, RiskRating, CollateralType, LimitReference, CostCentre, WorkflowId, InternalCustomerId, Channel, CompanyRegistrationNo) have no ISO 20022 equivalent — mark as UNMAPPED.
+- Delivery method (e.g. SWIFT) maps to DlvryChanl; presentation medium (PAPER / ELECTRONIC) maps to PresntnDtls/Mdm/Cd as PAPR / ELEC.
+"""
+
+# Domain mapping rules per message family. The element reference itself comes
+# from the target XSD; these are the expert rules the schema cannot state.
+_TARGET_RULES: dict[str, str] = {
+    "pain": _PAYMENT_RULES,
+    "pacs": _PAYMENT_RULES,
+    "camt": _PAYMENT_RULES,
+    "tsrv": _TRADE_RULES,
+    "tsmt": _TRADE_RULES,
+    "tsin": _TRADE_RULES,
+}
+
+# Used only when a target has no vendored XSD to outline
+_FALLBACK_CONTEXT: dict[str, str] = {
+    "pain": _PAIN001_CONTEXT,
+    "pacs": _PAIN001_CONTEXT,
+    "camt": _PAIN001_CONTEXT,
+    "tsrv": _TSRV001_CONTEXT,
+}
+
+
+def target_context(target_message_type: str) -> tuple[str, str, str]:
+    """
+    Reference material, mapping rules and domain label for a target message.
+    The element reference is generated from the vendored XSD so any supported
+    message is described accurately, falling back to a curated block only when
+    the schema is missing.
+    """
+    family = (target_message_type or "").split(".")[0]
+    rules = _TARGET_RULES.get(family, _PAYMENT_RULES)
+    domain = "trade finance" if family in ("tsrv", "tsmt", "tsin") else "payment"
+
+    schema = TargetSchema.for_message_type(target_message_type)
+    if schema is not None:
+        return schema.mapping_context(), rules, domain
+    log.info("No outline for %s — using the curated element block", target_message_type)
+    return _FALLBACK_CONTEXT.get(family, _PAIN001_CONTEXT), rules, domain
+
+# A mapping run costs roughly one prompt line plus one JSON object per field, so
+# a 73-field statement feed is an expensive call. Only the most business-relevant
+# fields are sent; the rest are reported as deferred rather than dropped quietly.
+MAX_MAPPED_FIELDS = 20
+
+# Vocabulary that earns a field its place in the budget, matched on the leaf
+# name so a parent element cannot lend its relevance to every child.
+_ESSENTIAL = (
+    "amount", "amt", "ccy", "currency", "iban", "acct", "accountnumber", "accountno",
+    "bic", "swiftcode", "sortcode", "uetr", "endtoend", "settlement", "valuedate",
+    "remittance", "balance", "expiry", "tolerance", "executiondate", "chargeindicator",
+)
+_USEFUL = (
+    "name", "date", "time", "ref", "id", "code", "type", "method", "purpose",
+    "status", "charge", "country", "entry", "statement", "bank", "branch",
+    "customer", "beneficiary", "applicant", "party", "debtor", "creditor",
+    "guarantee", "undertaking", "governing", "period", "number", "count",
+)
+# Internal plumbing a BA does not need mapped first; matched on the whole path.
+_NOISE = (
+    "workflow", "approval", "approvedby", "costcentre", "internalcustomer",
+    "channel", "batchref", "riskrating", "collateral", "limitreference",
+    "companyregistration", "audit", "createdby", "systemid", "sourcesystem",
+)
+
+_LIST_INDEX = re.compile(r"\[\d+\]")
+_NON_WORD = re.compile(r"[^a-z0-9]")
+
+
+def _field_score(f: InternalField, depth: int) -> int:
+    path = f"{f.xpath} {getattr(f, 'description', '')}".lower()
+    leaf = _NON_WORD.sub("", f.xpath.rsplit("/", 1)[-1].lower())
+    score = 0
+    if any(term in leaf for term in _ESSENTIAL):
+        score += 5
+    if any(term in leaf for term in _USEFUL):
+        score += 3
+    if any(term in _NON_WORD.sub("", path) for term in _NOISE):
+        score -= 10
+    score -= max(0, depth - 2)   # prefer header and summary levels
+    if getattr(f, "sample", "") or f.value:
+        score += 1               # a field with a sample value maps far better
+    return score
+
+
+def select_fields(
+    fields: List[InternalField], limit: int = MAX_MAPPED_FIELDS
+) -> tuple[List[InternalField], List[InternalField]]:
+    """
+    Split an inventory into the fields worth sending to the model and the rest.
+
+    Repeated occurrences of the same structure (`transactions/[7]/amount`) add
+    prompt cost without adding a mapping, so only the first occurrence of each
+    shape competes for the budget; what remains is ranked on business relevance.
+    Returns `(selected, deferred)`, both in their original document order.
+    """
+    candidates = [f for f in fields if not f.is_attribute]
+
+    seen: set[str] = set()
+    first_of_shape: List[InternalField] = []
+    repeats: List[InternalField] = []
+    for f in candidates:
+        shape = _LIST_INDEX.sub("[]", f.xpath)
+        (repeats if shape in seen else first_of_shape).append(f)
+        seen.add(shape)
+
+    if limit <= 0 or len(first_of_shape) <= limit:
+        selected = first_of_shape[:limit] if limit > 0 else []
+    else:
+        ranked = sorted(
+            enumerate(first_of_shape),
+            key=lambda pair: (-_field_score(pair[1], pair[1].xpath.count("/")),
+                              pair[0]),
+        )
+        keep = {i for i, _ in ranked[:limit]}
+        selected = [f for i, f in enumerate(first_of_shape) if i in keep]
+
+    chosen = {id(f) for f in selected}
+    deferred = [f for f in candidates if id(f) not in chosen]
+    return selected, deferred
+
+
 _MAPPING_SCHEMA = """
 Return ONLY a JSON array. Each element must have exactly these keys:
 {
@@ -85,6 +269,9 @@ class MappedField:
     confidence: str      # HIGH | MEDIUM | LOW
     business_rule: str
     notes: str
+    validation: str = UNCHECKED       # RESOLVED | PARTIAL | UNRESOLVED | UNCHECKED
+    validation_note: str = ""
+    resolved_xpath: str = ""
 
 
 class FieldMapper:
@@ -97,14 +284,23 @@ class FieldMapper:
         self._client = anthropic.Anthropic(api_key=api_key)
 
     def map(self, fields: List[InternalField], target_message_type: str) -> List[MappedField]:
-        """Map internal fields to the target ISO 20022 message type."""
+        """
+        Map internal fields to the target ISO 20022 message type.
+
+        At most `MAX_MAPPED_FIELDS` fields are sent per call; callers that need
+        to report what was left out should call `select_fields` themselves.
+        """
+        selected, deferred = select_fields(fields)
         field_list = "\n".join(
-            f"  - {f.xpath} = '{f.sample}'" for f in fields if not f.is_attribute
+            f"  - {f.xpath} = '{f.sample}'"
+            + (f"  [{f.description}]" if getattr(f, "description", "") else "")
+            for f in selected
         )
+        context, rules, domain = target_context(target_message_type)
 
-        prompt = f"""You are an ISO 20022 expert helping a Business Analyst map a bank's internal payment message to {target_message_type}.
+        prompt = f"""You are an ISO 20022 expert helping a Business Analyst map a bank's internal {domain} message to {target_message_type}.
 
-{_PAIN001_CONTEXT}
+{context}
 
 The internal message contains these fields:
 {field_list}
@@ -112,19 +308,14 @@ The internal message contains these fields:
 For each internal field, determine its ISO 20022 mapping.
 
 Rules:
-- Sort codes (format XX-XX-XX) are UK bank routing codes. They cannot map directly to BICFI. Mapping type is DERIVED — BIC must be looked up from a reference data service.
-- UK account numbers (8 digits) cannot map directly to IBAN. Mapping type is DERIVED — IBAN must be computed using the UK IBAN algorithm.
-- If a field already contains an IBAN (starts with two letters then digits), it maps DIRECTLY to CdtrAcct/Id/IBAN or DbtrAcct/Id/IBAN.
-- If a field already contains a BIC (8 or 11 chars, all caps, format XXXXGB22), it maps DIRECTLY to the relevant BICFI element.
-- Internal tracking fields (WorkflowId, ApprovalStatus, CostCentre, InternalCustomerId, Channel, BatchRef, ApprovedBy, ApprovalTimestamp, CompanyRegistrationNo) have no ISO 20022 equivalent — mark as UNMAPPED.
-- CreationDate and CreationTime should be COMBINED into GrpHdr/CreDtTm.
-- TotalAmount maps to GrpHdr/CtrlSum (DIRECT).
-- NumberOfPayments maps to GrpHdr/NbOfTxs (DIRECT).
-
+{rules}
 {_MAPPING_SCHEMA}"""
 
         model = os.environ.get("AGENT_MODEL", "claude-sonnet-4-6")
-        log.info("FieldMapper: calling %s with %d fields → %s", model, len(fields), target_message_type)
+        log.info(
+            "FieldMapper: calling %s with %d of %d fields (%d deferred) → %s",
+            model, len(selected), len(fields), len(deferred), target_message_type,
+        )
         message = self._client.messages.create(
             model=model,
             max_tokens=16000,
@@ -152,7 +343,7 @@ Rules:
             else:
                 raise ValueError(f"Could not parse mapping JSON from Claude response: {raw[:200]}")
 
-        return [
+        mapped = [
             MappedField(
                 source_field=item.get("source_field", ""),
                 source_xpath=item.get("source_xpath", ""),
@@ -166,3 +357,4 @@ Rules:
             )
             for item in data
         ]
+        return mapping_validator.validate(mapped, target_message_type)

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample Bank Internal Trade Finance Message
+  Format : Meridian Bank proprietary GuaranteeApplication v1.4
+  Purpose: Demo input for SwiftSage Transformation Advisor
+           Target mapping -> tsrv.001.001.01 (Undertaking Issuance, MT 760 equivalent)
+-->
+<GuaranteeApplication xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <MessageHeader>
+    <InternalRef>TF-GTE-2026-004471</InternalRef>
+    <CreationDate>2026-03-02</CreationDate>
+    <CreationTime>08:41:00</CreationTime>
+    <Channel>TRADE_PORTAL</Channel>
+    <ProductCode>DEMAND_GUARANTEE</ProductCode>
+    <GuaranteePurpose>ADVANCE_PAYMENT</GuaranteePurpose>
+    <IssueMode>ISSUE</IssueMode>
+  </MessageHeader>
+
+  <Applicant>
+    <CompanyName>Northgate Industrial Systems Ltd</CompanyName>
+    <CompanyRegistrationNo>04512298</CompanyRegistrationNo>
+    <InternalCustomerId>CUST-UK-00114872</InternalCustomerId>
+    <CustomerBIC>NRTGGB2LXXX</CustomerBIC>
+    <LimitReference>LIM-TF-2026-0774</LimitReference>
+    <Address>
+      <Line1>44 Kingsway</Line1>
+      <City>Manchester</City>
+      <PostCode>M2 4WU</PostCode>
+      <Country>GB</Country>
+    </Address>
+  </Applicant>
+
+  <IssuingBranch>
+    <BranchName>Meridian Bank Plc — Trade Finance</BranchName>
+    <BranchBIC>MERIGB2LXXX</BranchBIC>
+    <City>London</City>
+    <Country>GB</Country>
+  </IssuingBranch>
+
+  <Beneficiary>
+    <BeneficiaryName>Global Trade Partners BV</BeneficiaryName>
+    <BeneficiaryBIC>ABNANL2AXXX</BeneficiaryBIC>
+    <Address>
+      <Line1>505 Weena</Line1>
+      <City>Rotterdam</City>
+      <PostCode>3013 AL</PostCode>
+      <Country>NL</Country>
+    </Address>
+  </Beneficiary>
+
+  <AdvisingBank>
+    <BankName>ABN AMRO Bank NV</BankName>
+    <BankBIC>ABNANL2AXXX</BankBIC>
+    <Country>NL</Country>
+  </AdvisingBank>
+
+  <GuaranteeTerms>
+    <GuaranteeAmount>2500000.00</GuaranteeAmount>
+    <Currency>GBP</Currency>
+    <TolerancePercent>5.00</TolerancePercent>
+    <IssueDate>2026-03-02</IssueDate>
+    <ExpiryDate>2027-03-31</ExpiryDate>
+    <ExpiryPlace>London</ExpiryPlace>
+    <ExpiryCondition>Claims must be presented at the counters of the issuing bank on or before the expiry date.</ExpiryCondition>
+    <GoverningRules>URDG758</GoverningRules>
+    <GoverningLaw>Laws of England and Wales</GoverningLaw>
+    <Jurisdiction>Courts of England and Wales</Jurisdiction>
+    <ConfirmationRequired>NO</ConfirmationRequired>
+    <MultipleDemandsAllowed>YES</MultipleDemandsAllowed>
+    <PartialDemandsAllowed>YES</PartialDemandsAllowed>
+    <TransferableFlag>NO</TransferableFlag>
+    <ChargesBorneBy>APPLICANT</ChargesBorneBy>
+    <DeliveryMethod>SWIFT</DeliveryMethod>
+    <GuaranteeWording>We, Meridian Bank Plc, irrevocably undertake to pay the beneficiary any sum up to GBP 2,500,000.00 on receipt of a complying written demand stating that the applicant has failed to perform its obligations under contract CTR-NIS-2026-0088.</GuaranteeWording>
+  </GuaranteeTerms>
+
+  <UnderlyingContract>
+    <ContractRef>CTR-NIS-2026-0088</ContractRef>
+    <ContractType>CONSTRUCTION</ContractType>
+    <ContractDate>2026-02-18</ContractDate>
+    <ContractAmount>10000000.00</ContractAmount>
+    <ContractCurrency>GBP</ContractCurrency>
+    <GuaranteedPercent>25.00</GuaranteedPercent>
+    <ContractDescription>Supply and commissioning of process automation equipment, Rotterdam.</ContractDescription>
+  </UnderlyingContract>
+
+  <PresentationRequirements>
+    <PresentationMedium>PAPER</PresentationMedium>
+    <PresentationPlace>ISSUING_BANK</PresentationPlace>
+    <PresentationCountry>GB</PresentationCountry>
+    <DocumentsRequired>Written demand plus statement of breach</DocumentsRequired>
+  </PresentationRequirements>
+
+  <InternalControls>
+    <CreditApprovalStatus>APPROVED</CreditApprovalStatus>
+    <ApprovedBy>rachel.okafor@meridian.co.uk</ApprovedBy>
+    <ApprovalTimestamp>2026-03-01T16:22:10Z</ApprovalTimestamp>
+    <RiskRating>BB</RiskRating>
+    <CollateralType>CASH_MARGIN</CollateralType>
+    <CostCentre>CC-TRADEFIN-004</CostCentre>
+    <WorkflowId>WF-TF-2026-00981</WorkflowId>
+  </InternalControls>
+
+</GuaranteeApplication>

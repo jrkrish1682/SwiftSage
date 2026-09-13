@@ -1,0 +1,103 @@
+{
+  "_comment": "Meridian Bank internal AccountStatement feed v3 — demo input for the SwiftSage Transformation Advisor, target camt.053.001.10",
+  "statementHeader": {
+    "internalRef": "STMT-2026-04-000871",
+    "generatedDate": "2026-04-01",
+    "generatedTime": "02:15:44",
+    "statementNumber": "00087",
+    "sequenceNumber": 87,
+    "periodFrom": "2026-03-01",
+    "periodTo": "2026-03-31",
+    "channel": "HOST_TO_HOST",
+    "workflowId": "WF-STMT-88213"
+  },
+  "account": {
+    "internalCustomerId": "CUST-UK-00092341",
+    "accountName": "Meridian Logistics Holdings Ltd",
+    "accountNumber": "20139847",
+    "sortCode": "20-00-00",
+    "currency": "GBP",
+    "accountType": "CURRENT",
+    "servicingBranch": {
+      "branchName": "Meridian Bank London Wall",
+      "bic": "MERIGB2L",
+      "country": "GB"
+    }
+  },
+  "balances": {
+    "openingBalance": {
+      "amount": "1842300.55",
+      "currency": "GBP",
+      "sign": "CREDIT",
+      "date": "2026-03-01"
+    },
+    "closingBalance": {
+      "amount": "2015788.13",
+      "currency": "GBP",
+      "sign": "CREDIT",
+      "date": "2026-03-31"
+    },
+    "closingAvailableBalance": {
+      "amount": "1965788.13",
+      "currency": "GBP",
+      "sign": "CREDIT",
+      "date": "2026-03-31"
+    }
+  },
+  "transactions": [
+    {
+      "entryRef": "TXN-20260303-0001",
+      "bookingDate": "2026-03-03",
+      "valueDate": "2026-03-03",
+      "amount": "47500.00",
+      "currency": "GBP",
+      "direction": "DEBIT",
+      "status": "BOOKED",
+      "internalTransactionCode": "BACS-OUT",
+      "paymentReference": "PMT-001-INV-99832",
+      "counterparty": {
+        "name": "Apex Components Supplies Ltd",
+        "accountNumber": "31456789",
+        "sortCode": "30-00-04"
+      },
+      "narrative": "BACS payment Invoice INV-99832",
+      "costCentre": "CC-PROCUREMENT-001"
+    },
+    {
+      "entryRef": "TXN-20260311-0042",
+      "bookingDate": "2026-03-11",
+      "valueDate": "2026-03-11",
+      "amount": "268500.00",
+      "currency": "GBP",
+      "direction": "CREDIT",
+      "status": "BOOKED",
+      "internalTransactionCode": "FPS-IN",
+      "paymentReference": "REMIT-DE-4471902",
+      "counterparty": {
+        "name": "Nordwind Fertigung GmbH",
+        "iban": "DE89370400440532013000",
+        "bic": "COBADEFFXXX"
+      },
+      "narrative": "Inbound settlement contract NW-2026-118",
+      "exchangeInfo": {
+        "instructedAmount": "312400.00",
+        "instructedCurrency": "EUR",
+        "rate": "0.85947"
+      }
+    },
+    {
+      "entryRef": "TXN-20260327-0119",
+      "bookingDate": "2026-03-27",
+      "valueDate": "2026-03-27",
+      "amount": "1240.00",
+      "currency": "GBP",
+      "direction": "DEBIT",
+      "status": "BOOKED",
+      "internalTransactionCode": "FEE-TRADE",
+      "paymentReference": "GTE-2026-004471",
+      "narrative": "Guarantee issuance commission GTE-2026-004471",
+      "approvedBy": "j.okafor",
+      "approvalTimestamp": "2026-03-27T08:41:12"
+    }
+  ]
+}

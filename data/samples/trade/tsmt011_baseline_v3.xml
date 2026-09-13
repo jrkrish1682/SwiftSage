@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Trade demo — baseline: tsmt.011.001.03 Baseline Report for a Bank Payment
+  Obligation, reporting the established purchase-order baseline between buyer
+  and seller banks.
+-->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:tsmt.011.001.03">
+  <BaselnRpt>
+    <RptId>
+      <Id>BPO-RPT-2026-000318</Id>
+      <CreDtTm>2026-03-02T09:15:00</CreDtTm>
+    </RptId>
+    <RptTp>
+      <Tp>CURR</Tp>
+    </RptTp>
+    <TxId>
+      <Id>TSU-TX-88214</Id>
+    </TxId>
+    <EstblishdBaselnId>
+      <Id>BASELINE-88214</Id>
+      <Vrsn>3</Vrsn>
+      <AmdmntSeqNb>001</AmdmntSeqNb>
+    </EstblishdBaselnId>
+    <TxSts>
+      <Sts>ESTD</Sts>
+    </TxSts>
+    <UsrTxRef>
+      <Id>PO-NIS-2026-0088</Id>
+      <IdIssr>
+        <BIC>MERIGB2L</BIC>
+      </IdIssr>
+    </UsrTxRef>
+    <Buyr>
+      <Nm>Northgate Industrial Systems Ltd</Nm>
+      <PstlAdr>
+        <StrtNm>Kingsway 44</StrtNm>
+        <PstCdId>M2 4WU</PstCdId>
+        <TwnNm>Manchester</TwnNm>
+        <Ctry>GB</Ctry>
+      </PstlAdr>
+    </Buyr>
+    <Sellr>
+      <Nm>Global Trade Partners BV</Nm>
+      <PstlAdr>
+        <StrtNm>Weena 505</StrtNm>
+        <PstCdId>3013 AL</PstCdId>
+        <TwnNm>Rotterdam</TwnNm>
+        <Ctry>NL</Ctry>
+      </PstlAdr>
+    </Sellr>
+    <BuyrBk>
+      <BIC>MERIGB2L</BIC>
+    </BuyrBk>
+    <SellrBk>
+      <BIC>ABNANL2A</BIC>
+    </SellrBk>
+    <RptdLineItm>
+      <LineItmDtls>
+        <LineItmId>LI-0001</LineItmId>
+        <PdctNm>Process automation controller</PdctNm>
+        <OrdrdQty>
+          <UnitOfMeasrCd>EA</UnitOfMeasrCd>
+          <Val>400</Val>
+        </OrdrdQty>
+        <AccptdQty>
+          <UnitOfMeasrCd>EA</UnitOfMeasrCd>
+          <Val>400</Val>
+        </AccptdQty>
+        <OutsdngQty>
+          <UnitOfMeasrCd>EA</UnitOfMeasrCd>
+          <Val>150</Val>
+        </OutsdngQty>
+        <PdgQty>
+          <UnitOfMeasrCd>EA</UnitOfMeasrCd>
+          <Val>0</Val>
+        </PdgQty>
+        <OrdrdAmt Ccy="GBP">6000000.00</OrdrdAmt>
+        <AccptdAmt Ccy="GBP">6000000.00</AccptdAmt>
+        <OutsdngAmt Ccy="GBP">2250000.00</OutsdngAmt>
+        <PdgAmt Ccy="GBP">0.00</PdgAmt>
+      </LineItmDtls>
+      <OrdrdLineItmsTtlAmt Ccy="GBP">6000000.00</OrdrdLineItmsTtlAmt>
+      <AccptdLineItmsTtlAmt Ccy="GBP">6000000.00</AccptdLineItmsTtlAmt>
+      <OutsdngLineItmsTtlAmt Ccy="GBP">2250000.00</OutsdngLineItmsTtlAmt>
+      <PdgLineItmsTtlAmt Ccy="GBP">0.00</PdgLineItmsTtlAmt>
+      <OrdrdTtlNetAmt Ccy="GBP">6000000.00</OrdrdTtlNetAmt>
+      <AccptdTtlNetAmt Ccy="GBP">6000000.00</AccptdTtlNetAmt>
+      <OutsdngTtlNetAmt Ccy="GBP">2250000.00</OutsdngTtlNetAmt>
+      <PdgTtlNetAmt Ccy="GBP">0.00</PdgTtlNetAmt>
+    </RptdLineItm>
+    <ReqForActn>
+      <Tp>WAIT</Tp>
+      <Desc>Awaiting seller data-set submission for the outstanding quantity.</Desc>
+    </ReqForActn>
+  </BaselnRpt>
+</Document>

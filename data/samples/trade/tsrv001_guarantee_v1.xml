@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Trade demo — baseline: Meridian Bank issues a demand guarantee (URDG 758) in
+  favour of a Dutch buyer, securing a GBP 2,500,000 advance payment obligation.
+  Equivalent to SWIFT MT 760.
+-->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:tsrv.001.001.01">
+  <UdrtkgIssnc>
+    <UdrtkgIssncDtls>
+      <Id>GTE-2026-004471</Id>
+      <Nm>DGAR</Nm>
+      <Tp>
+        <Cd>APAY</Cd>
+      </Tp>
+      <IssncTp>ISSU</IssncTp>
+      <Applcnt>
+        <Nm>Northgate Industrial Systems Ltd</Nm>
+        <PstlAdr>
+          <StrtNm>Kingsway</StrtNm>
+          <BldgNb>44</BldgNb>
+          <PstCd>M2 4WU</PstCd>
+          <TwnNm>Manchester</TwnNm>
+          <Ctry>GB</Ctry>
+        </PstlAdr>
+        <Id>
+          <OrgId>
+            <AnyBIC>NRTGGB2LXXX</AnyBIC>
+          </OrgId>
+        </Id>
+      </Applcnt>
+      <Issr>
+        <Nm>Meridian Bank Plc — Trade Finance</Nm>
+        <PstlAdr>
+          <StrtNm>Lombard Street</StrtNm>
+          <BldgNb>21</BldgNb>
+          <PstCd>EC3V 9AH</PstCd>
+          <TwnNm>London</TwnNm>
+          <Ctry>GB</Ctry>
+        </PstlAdr>
+        <Id>
+          <OrgId>
+            <AnyBIC>MERIGB2LXXX</AnyBIC>
+          </OrgId>
+        </Id>
+      </Issr>
+      <Bnfcry>
+        <Nm>Global Trade Partners BV</Nm>
+        <PstlAdr>
+          <StrtNm>Weena</StrtNm>
+          <BldgNb>505</BldgNb>
+          <PstCd>3013 AL</PstCd>
+          <TwnNm>Rotterdam</TwnNm>
+          <Ctry>NL</Ctry>
+        </PstlAdr>
+        <Id>
+          <OrgId>
+            <AnyBIC>ABNANL2AXXX</AnyBIC>
+          </OrgId>
+        </Id>
+      </Bnfcry>
+      <DtOfIssnc>2026-03-02</DtOfIssnc>
+      <PlcOfIsse>
+        <TwnNm>London</TwnNm>
+        <Ctry>GB</Ctry>
+      </PlcOfIsse>
+      <AdvsgPty>
+        <Nm>ABN AMRO Bank NV</Nm>
+        <Id>
+          <OrgId>
+            <AnyBIC>ABNANL2AXXX</AnyBIC>
+          </OrgId>
+        </Id>
+      </AdvsgPty>
+      <UdrtkgAmt>
+        <Amt Ccy="GBP">2500000.00</Amt>
+        <PlusTlrnce>5.00</PlusTlrnce>
+        <AddtlInf>Amount reduces pro rata with each certified milestone payment.</AddtlInf>
+      </UdrtkgAmt>
+      <XpryDtls>
+        <XpryTerms>
+          <DtTm>
+            <Dt>2027-03-31</Dt>
+          </DtTm>
+          <Cond>Claims must be presented at the counters of the issuing bank on or before the expiry date.</Cond>
+        </XpryTerms>
+        <AddtlXpryInf>Guarantee expires at the close of business in London.</AddtlXpryInf>
+      </XpryDtls>
+      <ConfInd>false</ConfInd>
+      <GovncRulesAndLaw>
+        <RuleId>
+          <Cd>URDG</Cd>
+        </RuleId>
+        <AplblLaw>
+          <Ctry>GB</Ctry>
+          <Txt>Laws of England and Wales</Txt>
+        </AplblLaw>
+        <Jursdctn>
+          <Ctry>GB</Ctry>
+          <Txt>Courts of England and Wales</Txt>
+        </Jursdctn>
+      </GovncRulesAndLaw>
+      <UndrlygTx>
+        <Tp>
+          <Cd>CONS</Cd>
+        </Tp>
+        <Id>CTR-NIS-2026-0088</Id>
+        <TxDt>2026-02-18</TxDt>
+        <TxAmt Ccy="GBP">10000000.00</TxAmt>
+        <CtrctAmtPctg>25.00</CtrctAmtPctg>
+        <AddtlInf>Supply and commissioning of process automation equipment, Rotterdam.</AddtlInf>
+      </UndrlygTx>
+      <PresntnDtls>
+        <Mdm>
+          <Cd>PAPR</Cd>
+        </Mdm>
+        <PlcOfPresntnOrUdrConfChc>
+          <PlcOfPresntn>
+            <Plc>ISSU</Plc>
+            <Ctry>GB</Ctry>
+          </PlcOfPresntn>
+        </PlcOfPresntnOrUdrConfChc>
+        <AddtlInf>Written demand plus statement of breach required.</AddtlInf>
+      </PresntnDtls>
+      <UdrtkgTermsAndConds>
+        <Tp>
+          <Cd>TERM</Cd>
+        </Tp>
+        <Txt>We, Meridian Bank Plc, irrevocably undertake to pay the beneficiary any sum up to GBP 2,500,000.00 on receipt of a complying written demand stating that the applicant has failed to perform its obligations under contract CTR-NIS-2026-0088.</Txt>
+      </UdrtkgTermsAndConds>
+      <MltplDmndInd>true</MltplDmndInd>
+      <PrtlDmndInd>true</PrtlDmndInd>
+      <ConfChrgsPyblBy>APPL</ConfChrgsPyblBy>
+      <TrfInd>false</TrfInd>
+    </UdrtkgIssncDtls>
+    <BkToBnfcryInf>Advise through ABN AMRO Bank NV, Rotterdam.</BkToBnfcryInf>
+  </UdrtkgIssnc>
+</Document>

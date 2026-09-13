@@ -1,0 +1,31 @@
+Field,Sample Value,Description
+Header/InternalRef,FIT-2026-0311-00042,Internal reference of the interbank transfer instruction
+Header/CreationDate,2026-03-11,Date the instruction was created in the payment hub
+Header/CreationTime,10:04:22,Time the instruction was created (local, London)
+Header/NumberOfTransactions,1,Count of transfers in the instruction
+Header/SettlementMethod,CLEARING,Internal settlement indicator — CLEARING or AGENT_ACCOUNT
+Header/ClearingSystem,TARGET2,Rail the transfer settles across
+Header/Priority,HIGH,"Internal priority flag, drives cut-off selection"
+Header/WorkflowId,WF-FIT-778213,"Internal workflow instance, no external meaning"
+Transfer/TransactionRef,FIT-TXN-0000441,Point-to-point reference between the two banks
+Transfer/CustomerReference,INV-2026-118-NW,Reference supplied by the ordering customer
+Transfer/UETR,,Unique end-to-end transaction reference — not currently populated
+Transfer/SettlementAmount,312400.00,Amount settled between the banks
+Transfer/SettlementCurrency,EUR,ISO 4217 currency of the settlement amount
+Transfer/SettlementDate,2026-03-11,Interbank value date
+Transfer/ChargeIndicator,SHARED,Internal charge code — SHARED / OURS / BENE
+Transfer/OrderingCustomer/Name,Meridian Logistics Holdings Ltd,Debtor name
+Transfer/OrderingCustomer/AddressLine,10 Canary Wharf London E14 5AB GB,Single unstructured address line
+Transfer/OrderingCustomer/AccountNumber,20139847,"Debtor account, UK domestic format"
+Transfer/OrderingCustomer/SortCode,20-00-00,UK routing code of the debtor account
+Transfer/OrderingBank/BIC,MERIGB2L,BIC of the sending institution (8 characters)
+Transfer/BeneficiaryBank/BIC,COBADEFFXXX,BIC of the receiving institution
+Transfer/BeneficiaryBank/Name,Commerzbank AG,Name of the receiving institution
+Transfer/Beneficiary/Name,Nordwind Fertigung GmbH,Creditor name
+Transfer/Beneficiary/IBAN,DE89370400440532013000,Creditor account in IBAN form
+Transfer/Beneficiary/CountryCode,DE,Country of the creditor
+Transfer/RemittanceInfo,Contract NW-2026-118 milestone 2,Unstructured remittance information
+Transfer/RegulatoryReason,GOODS,Internal regulatory reporting reason code
+Transfer/CostCentre,CC-TREASURY-004,"Internal cost allocation, not part of the payment"
+Transfer/ApprovedBy,j.okafor,Internal four-eyes approver
+Transfer/ApprovalTimestamp,2026-03-11T09:58:03,Internal approval audit stamp

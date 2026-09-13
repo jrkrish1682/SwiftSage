@@ -5,10 +5,12 @@ Layout
 ------
   Sidebar  : Configuration, file uploader, quick actions
   Main area: Tabbed interface
+    • Demo              — One-click rehearsed scenarios with talking points
     • Chat              — Conversational agent (streaming, BA/PO persona)
     • Transform Advisor — Internal message → ISO 20022 mapping + requirements doc
     • XML Diff          — Direct semantic comparison tool
     • Library           — Browse downloaded schemas
+    • Observability     — Local run log: durations, tool calls, effort saved
     • Help              — Quick start guide
 """
 from __future__ import annotations
@@ -16,11 +18,15 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
-from src.utils.helpers import get_logger
+from src.observability import metrics, run_log
+from src.ui import demo_scenarios, prompt_packs
+from src.ui.theme import hero, inject_css, section, stat_cards
+from src.utils.helpers import ISO20022_MESSAGE_SETS, get_logger
 
 log = get_logger(__name__)
 
@@ -37,256 +43,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global CSS — Claude Code style, light-blue theme ──────────────────────────
-st.markdown("""
-<style>
-/* ── App shell ──────────────────────────────────────────────────────────────── */
-.stApp {
-    background-color: #EBF5FB;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-}
-
-/* ── Sidebar ─────────────────────────────────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background-color: #D6EAF8 !important;
-}
-[data-testid="stSidebar"] * {
-    color: #1F4E79 !important;
-}
-[data-testid="stSidebar"] .stTextInput input {
-    background-color: #FFFFFF !important;
-    color: #1a2936 !important;
-    border: 1px solid #85C1E9 !important;
-    border-radius: 8px !important;
-}
-[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
-    background-color: #FFFFFF !important;
-    border: 1px solid #85C1E9 !important;
-    border-radius: 8px !important;
-    color: #1a2936 !important;
-}
-[data-testid="stSidebar"] .stButton button {
-    background-color: #2E75B6 !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 500 !important;
-    transition: background-color 0.2s !important;
-}
-[data-testid="stSidebar"] .stButton button:hover {
-    background-color: #1F4E79 !important;
-}
-[data-testid="stSidebar"] hr {
-    border-color: #85C1E9 !important;
-}
-
-/* ── Main content area ───────────────────────────────────────────────────────── */
-.main .block-container {
-    padding-top: 1.5rem !important;
-    padding-bottom: 1rem !important;
-}
-
-/* ── Tabs ────────────────────────────────────────────────────────────────────── */
-[data-testid="stTabs"] [role="tablist"] {
-    background-color: #D6EAF8;
-    border-radius: 10px;
-    padding: 4px;
-    gap: 4px;
-    border-bottom: none !important;
-}
-[data-testid="stTabs"] [role="tab"] {
-    border-radius: 8px !important;
-    color: #1F4E79 !important;
-    font-weight: 500 !important;
-    padding: 6px 16px !important;
-    border: none !important;
-    background-color: transparent !important;
-    transition: background-color 0.2s !important;
-}
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-    background-color: #1F4E79 !important;
-    color: #ffffff !important;
-    font-weight: 600 !important;
-    box-shadow: 0 1px 4px rgba(31,78,121,0.3) !important;
-}
-[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) {
-    background-color: #AED6F1 !important;
-}
-
-/* ── Chat messages ───────────────────────────────────────────────────────────── */
-[data-testid="stChatMessage"] {
-    border-radius: 14px !important;
-    margin: 10px 0 !important;
-    padding: 14px 18px !important;
-    box-shadow: 0 1px 4px rgba(31, 78, 121, 0.10) !important;
-    border: 1px solid #AED6F1 !important;
-    background-color: #FFFFFF !important;
-    animation: fadeIn 0.18s ease-in !important;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-/* User message — light blue tint */
-[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-    background-color: #D6EAF8 !important;
-    border-color: #85C1E9 !important;
-    margin-left: 8% !important;
-}
-
-/* Assistant message — white card */
-[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
-    background-color: #FFFFFF !important;
-    border-color: #AED6F1 !important;
-    margin-right: 8% !important;
-}
-
-/* Avatar icons */
-[data-testid="chatAvatarIcon-user"] {
-    background-color: #1F4E79 !important;
-    color: #FFFFFF !important;
-    border-radius: 50% !important;
-}
-[data-testid="chatAvatarIcon-assistant"] {
-    background-color: #2E75B6 !important;
-    color: #FFFFFF !important;
-    border-radius: 50% !important;
-}
-
-/* Message text */
-[data-testid="stChatMessage"] p,
-[data-testid="stChatMessage"] li,
-[data-testid="stChatMessage"] span {
-    color: #1a2936 !important;
-    font-size: 0.95rem !important;
-    line-height: 1.65 !important;
-}
-
-/* Inline code */
-[data-testid="stChatMessage"] code {
-    background-color: #D6EAF8 !important;
-    color: #1F4E79 !important;
-    border-radius: 5px !important;
-    padding: 2px 6px !important;
-    font-size: 0.87em !important;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace !important;
-    border: 1px solid #AED6F1 !important;
-}
-
-/* Code blocks (tool output, pre) */
-[data-testid="stChatMessage"] pre {
-    background-color: #EBF5FB !important;
-    border: 1px solid #AED6F1 !important;
-    border-radius: 10px !important;
-    padding: 14px 16px !important;
-    overflow-x: auto !important;
-}
-[data-testid="stChatMessage"] pre code {
-    background-color: transparent !important;
-    border: none !important;
-    color: #1F4E79 !important;
-    font-size: 0.85em !important;
-}
-
-/* Bold text in messages */
-[data-testid="stChatMessage"] strong {
-    color: #1F4E79 !important;
-    font-weight: 600 !important;
-}
-
-/* Tables in chat */
-[data-testid="stChatMessage"] table {
-    border-collapse: collapse !important;
-    width: 100% !important;
-    margin: 8px 0 !important;
-}
-[data-testid="stChatMessage"] th {
-    background-color: #1F4E79 !important;
-    color: #FFFFFF !important;
-    padding: 8px 12px !important;
-    font-size: 0.87rem !important;
-}
-[data-testid="stChatMessage"] td {
-    padding: 7px 12px !important;
-    border: 1px solid #AED6F1 !important;
-    font-size: 0.88rem !important;
-}
-[data-testid="stChatMessage"] tr:nth-child(even) td {
-    background-color: #EBF5FB !important;
-}
-
-/* Horizontal rule in chat */
-[data-testid="stChatMessage"] hr {
-    border-color: #AED6F1 !important;
-    margin: 10px 0 !important;
-}
-
-/* ── Chat input ───────────────────────────────────────────────────────────────── */
-[data-testid="stChatInput"] {
-    background-color: #FFFFFF !important;
-    border: 2px solid #2E75B6 !important;
-    border-radius: 24px !important;
-    box-shadow: 0 2px 12px rgba(46,117,182,0.15) !important;
-    padding: 4px 8px !important;
-}
-[data-testid="stChatInput"]:focus-within {
-    border-color: #1F4E79 !important;
-    box-shadow: 0 2px 16px rgba(31,78,121,0.25) !important;
-}
-[data-testid="stChatInput"] textarea {
-    color: #1a2936 !important;
-    font-size: 0.95rem !important;
-    background-color: transparent !important;
-}
-[data-testid="stChatInput"] textarea::placeholder {
-    color: #85C1E9 !important;
-}
-
-/* ── Demo question chips ─────────────────────────────────────────────────────── */
-.stButton button[kind="secondary"] {
-    background-color: #EBF5FB !important;
-    color: #1F4E79 !important;
-    border: 1px solid #AED6F1 !important;
-    border-radius: 20px !important;
-    font-size: 0.83rem !important;
-    padding: 6px 14px !important;
-    transition: all 0.2s !important;
-    white-space: normal !important;
-    height: auto !important;
-}
-.stButton button[kind="secondary"]:hover {
-    background-color: #D6EAF8 !important;
-    border-color: #2E75B6 !important;
-}
-
-/* ── Primary buttons ─────────────────────────────────────────────────────────── */
-.stButton button[kind="primary"] {
-    background-color: #1F4E79 !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.01em !important;
-    transition: background-color 0.2s !important;
-}
-.stButton button[kind="primary"]:hover {
-    background-color: #2E75B6 !important;
-}
-
-/* ── Info / success / warning banners ───────────────────────────────────────── */
-[data-testid="stAlert"] {
-    border-radius: 10px !important;
-    border-left-width: 4px !important;
-}
-
-/* ── Chat tab padding — ensure last message isn't hidden behind sticky input ── */
-.main .block-container {
-    padding-bottom: 100px !important;
-}
-</style>
-""", unsafe_allow_html=True)
+# ── Global theme ─────────────────────────────────────────────────────────────
+inject_css()
 
 # ── Lazy loaders ───────────────────────────────────────────────────────────────
 def _load_agent():
@@ -304,6 +62,43 @@ def _load_library():
     return StandardsLibrary(settings.standards_library_path)
 
 
+# ── Shared actions ─────────────────────────────────────────────────────────────
+def _compare_and_record(xml_a: str, xml_b: str, schema: str | None,
+                        ignore_tags: list[str]) -> None:
+    """Run one comparison, store it in session state and log the run.
+
+    Shared by the Compare button and the one-click demo scenarios so both
+    produce identical results and identical telemetry.
+    """
+    from src.comparator.xml_comparator import XMLComparator
+
+    cmp = XMLComparator(ignore_tags=ignore_tags)
+    with run_log.track(
+        run_log.DIFF,
+        f"{Path(xml_a).name} → {Path(xml_b).name}",
+        schema=Path(schema).stem if schema else "none",
+    ) as detail:
+        # Kept in session state so the download buttons below — each of which
+        # reruns the script — do not wipe the result panel.
+        result = cmp.compare(xml_a, xml_b, schema_path=schema)
+        st.session_state.diff_result = result
+        st.session_state.diff_schema = schema
+        detail.update(
+            message_type_a=result.message_type_a or "unknown",
+            message_type_b=result.message_type_b or "unknown",
+            diffs=len(result.diffs),
+            breaking=len(result.breaking),
+            warnings=len(result.warnings),
+            benign=len(result.benign),
+            breaking_score=result.breaking_score,
+            parse_error=bool(result.parse_error),
+        )
+        # The comparator returns unreadable XML as a result rather than
+        # raising, so grade it here or it counts as a success.
+        if result.parse_error:
+            detail["status"] = "error"
+
+
 # ── Session state ──────────────────────────────────────────────────────────────
 if "messages"            not in st.session_state: st.session_state.messages = []
 if "agent"               not in st.session_state: st.session_state.agent = None
@@ -312,24 +107,48 @@ if "transform_mappings"  not in st.session_state: st.session_state.transform_map
 if "transform_gaps"      not in st.session_state: st.session_state.transform_gaps = None
 if "transform_target"    not in st.session_state: st.session_state.transform_target = None
 if "transform_doc_bytes" not in st.session_state: st.session_state.transform_doc_bytes = None
+if "transform_provenance" not in st.session_state: st.session_state.transform_provenance = None
+if "transform_family_note" not in st.session_state: st.session_state.transform_family_note = ""
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## ⚡ SwiftSage")
-    st.caption("ISO 20022 Expert Agent for Business Analysts & Product Owners")
+    st.markdown(
+        """<div class="ss-brand">
+            <div class="ss-logo">⚡</div>
+            <div>
+                <div class="ss-name">SwiftSage</div>
+                <div class="ss-tag">ISO 20022 Expert Agent</div>
+            </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
-    api_key = st.text_input(
-        "Anthropic API Key",
-        value=st.session_state.get("api_key", ""),
-        type="password",
-        help="Enter your API key for this session. Never stored on disk.",
-        placeholder="sk-ant-...",
-    )
+    st.subheader("Configuration")
+    with st.form("api_key_form", clear_on_submit=False):
+        key_input = st.text_input(
+            "Anthropic API Key",
+            value=st.session_state.get("api_key", ""),
+            type="password",
+            help="Enter your API key for this session, then press Apply. "
+                 "Never stored on disk.",
+            placeholder="sk-ant-...",
+        )
+        applied = st.form_submit_button("Apply key", use_container_width=True)
+
+    if applied:
+        if key_input != st.session_state.get("api_key", ""):
+            st.session_state.agent = None          # rebuild with the new key
+        st.session_state["api_key"] = key_input
+
+    api_key = st.session_state.get("api_key", "")
     if api_key:
-        st.session_state["api_key"] = api_key
         os.environ["ANTHROPIC_API_KEY"] = api_key
+        st.caption("✅ Key applied for this session.")
+    else:
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        st.caption("Key not applied — Chat and Transform Advisor are disabled.")
 
     model = st.selectbox(
         "Model",
@@ -369,7 +188,8 @@ with st.sidebar:
             conn = ISO20022Connector(library=lib)
             result = conn.sync(message_sets=["pain", "pacs", "camt"])
             st.success(
-                f"Sync complete: {result.get('artifacts_added', 0)} added, "
+                f"Sync complete from {result.get('source', 'unknown source')}: "
+                f"{result.get('artifacts_added', 0)} added, "
                 f"{result.get('artifacts_skipped', 0)} skipped"
             )
         except Exception as e:
@@ -394,39 +214,130 @@ with st.sidebar:
 
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_chat, tab_transform, tab_diff, tab_library, tab_help = st.tabs([
+(tab_demo, tab_chat, tab_transform, tab_diff, tab_library, tab_obs,
+ tab_help) = st.tabs([
+    "🎬 Demo",
     "💬 Chat",
     "🔄 Transform Advisor",
     "🔍 XML Diff",
     "📚 Library",
+    "📈 Observability",
     "ℹ️ Help",
 ])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 0 — Demo
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_demo:
+    hero(
+        "Rehearsed demo scenarios",
+        "Four business questions a migration programme actually asks. Each one "
+        "loads its own inputs, runs where no credentials are needed, and tells "
+        "you what to point at.",
+        ["One click", "Payments + Trade", "Offline-safe"],
+    )
+
+    st.info(
+        "**How to run the demo:** press *Run* or *Load*, then switch to the tab "
+        "named on the card. Scenarios 1 and 2 need no API key — they work "
+        "entirely from the vendored XSDs, so a failed conference Wi-Fi cannot "
+        "stop the demo. Scenarios 3 and 4 call Claude and need a key applied in "
+        "the sidebar.",
+        icon="🎬",
+    )
+
+    for scenario in demo_scenarios.SCENARIOS:
+        missing = demo_scenarios.missing_assets(scenario)
+        with st.container(border=True):
+            st.markdown(f"#### {scenario.title}")
+            st.caption(
+                f"Opens in **{scenario.tab}** · "
+                + ("needs an API key" if scenario.needs_key
+                   else "runs offline, no key needed")
+            )
+            st.markdown(f"> {scenario.question}")
+
+            col_run, col_notes = st.columns([1, 2])
+            with col_run:
+                label = ("▶️ Run scenario" if scenario.diff is not None
+                         else "📋 Load scenario")
+                if missing:
+                    st.error(
+                        "Missing demo asset(s): "
+                        + ", ".join(p.name for p in missing)
+                    )
+                elif st.button(
+                    label,
+                    key=f"demo_run_{scenario.id}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    for key, value in scenario.presets.items():
+                        st.session_state[key] = value
+                    if scenario.diff is not None:
+                        from config.settings import settings as _s
+                        baseline, revised, schema = scenario.diff.paths()
+                        with st.spinner("Comparing..."):
+                            _compare_and_record(
+                                str(baseline), str(revised), str(schema),
+                                list(_s.benign_patterns),
+                            )
+                    if scenario.chat_prompt:
+                        st.session_state._pending_chat = scenario.chat_prompt
+                    st.session_state.demo_loaded = scenario.id
+                    st.rerun()
+
+                if st.session_state.get("demo_loaded") == scenario.id:
+                    st.success(f"Loaded — open the **{scenario.tab}** tab.")
+
+            with col_notes:
+                with st.expander("🎙️ What to say"):
+                    for point in scenario.talking_points:
+                        st.markdown(f"- {point}")
+                with st.expander("👀 What to point at"):
+                    for point in scenario.watch_for:
+                        st.markdown(f"- {point}")
+        st.write("")
+
+    st.caption(
+        "Timings for everything you run are recorded locally and rolled up in "
+        "the **📈 Observability** tab — that is where the weeks-to-minutes "
+        "number comes from."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Chat
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_chat:
-    st.header("SwiftSage — ISO 20022 Expert")
-    st.caption(
-        "Ask anything about SWIFT / ISO 20022 in plain English. "
-        "SwiftSage answers in business terms and can validate, compare, map, and explain messages."
+    hero(
+        "Your ISO 20022 expert, on call",
+        "Ask anything about SWIFT and ISO 20022 in plain English. SwiftSage answers in "
+        "business terms and can validate, compare, map, and explain payment messages.",
+        ["pain.001", "pacs.008", "camt.053", "tsrv.001", "Claude-powered", "BA / PO ready"],
     )
 
     if st.session_state.uploaded_files:
         names = ", ".join(f"`{n}`" for n in st.session_state.uploaded_files)
         st.info(f"📂 Uploaded files available: {names}")
 
-    # Demo question chips
-    st.markdown("**Try asking:**")
-    demo_cols = st.columns(3)
-    demo_questions = [
-        "What is pain.001 used for in business terms?",
-        "What changed between pain.001 v3 and v9 and what is the business impact?",
-        "Explain the end-to-end flow of a cross-border SWIFT GPI payment",
-    ]
-    for col, q in zip(demo_cols, demo_questions):
-        if col.button(q, use_container_width=True, key=f"demo_{q[:20]}"):
+    # Demo question chips, grouped by business domain
+    section(
+        "Start a conversation",
+        "Pick a domain for starter questions, or type your own below. Answers about "
+        "specific fields are looked up in the vendored schemas and cite the message version.",
+    )
+    pack = st.radio(
+        "Domain",
+        prompt_packs.pack_names(),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="chat_prompt_pack",
+    )
+    demo_questions = prompt_packs.prompts_for(pack)
+    for col, q in zip(st.columns(len(demo_questions)), demo_questions):
+        if col.button(q, use_container_width=True, key=f"demo_{pack}_{q[:24]}"):
             st.session_state._pending_chat = q
 
     st.divider()
@@ -448,14 +359,19 @@ with tab_chat:
             height=0,
         )
 
-    pending = st.session_state.pop("_pending_chat", None)
+    # A demo question stays queued until it actually runs: popping it before the
+    # key check would discard the scenario the presenter just loaded, so the
+    # question would never appear once they applied a key.
+    pending = st.session_state.get("_pending_chat")
     prompt = st.chat_input("Ask about ISO 20022, transformation requirements, or message flows...") or pending
 
-    if prompt:
-        if not api_key:
-            st.error("Please enter your Anthropic API Key in the sidebar.")
-            st.stop()
+    if prompt and not api_key:
+        st.error("Please enter your Anthropic API Key in the sidebar and press Apply.")
+        prompt = None
+    elif prompt:
+        st.session_state.pop("_pending_chat", None)
 
+    if prompt:
         enriched_prompt = prompt
         if st.session_state.uploaded_files:
             file_context = "\n".join(
@@ -498,42 +414,53 @@ with tab_chat:
 # TAB 2 — Transform Advisor
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_transform:
-    st.header("🔄 Transformation Advisor")
-    st.caption(
-        "Upload your bank's internal payment message. SwiftSage will map every field to its "
-        "ISO 20022 equivalent, identify gaps, and generate a Transformation Requirements "
-        "Document ready for your development team."
+    hero(
+        "Transformation Advisor",
+        "Upload your bank's internal payment or trade finance message. SwiftSage maps every field to its "
+        "ISO 20022 equivalent, identifies gaps, and generates a Transformation Requirements "
+        "Document ready for your development team.",
+        ["Field mapping", "Gap register", "Word export"],
     )
 
     st.info(
-        "**How it works:** SwiftSage parses your internal message → maps each field to "
-        "ISO 20022 (DIRECT / DERIVED / SPLIT / UNMAPPED) → identifies BLOCKING and ENRICHMENT "
-        "gaps → generates a structured requirements document. This will take few minutes.",
+        "**How it works:** SwiftSage parses your internal message or field specification "
+        "(XML, JSON, CSV or XLSX) → maps each field to ISO 20022 (DIRECT / DERIVED / SPLIT / "
+        "UNMAPPED) → checks every proposed path against the target XSD → identifies BLOCKING "
+        "and ENRICHMENT gaps → generates a structured requirements document. "
+        "This will take few minutes.",
         icon="💡",
     )
 
     # ── Inputs ─────────────────────────────────────────────────────────────────
+    section("1. Choose your source message")
     col_upload, col_target = st.columns([3, 1])
     with col_upload:
         internal_file = st.file_uploader(
-            "Upload Internal Bank Message (XML)",
-            type=["xml"],
+            "Upload Internal Bank Message or Field Specification",
+            type=["xml", "json", "csv", "xlsx"],
             key="internal_xml_uploader",
-            help="Your bank's proprietary payment XML format — not an ISO 20022 file.",
+            help="Your bank's proprietary message (XML or JSON) or a field "
+                 "specification (CSV / XLSX with a field-name column) — "
+                 "not an ISO 20022 file.",
         )
     with col_target:
         target_msg = st.selectbox(
             "Target ISO 20022 Message",
-            ["pain.001.001.09", "pacs.008.001.10", "camt.053.001.10"],
+            ["pain.001.001.09", "pacs.008.001.10", "camt.053.001.10", "tsrv.001.001.01"],
             key="target_msg_type",
             help="The ISO 20022 message type you are migrating to.",
         )
 
     SAMPLES = {
         "None — I'll upload my own": None,
-        "pain.001 — Meridian Bank payment initiation (46 fields)": Path("data/samples/internal/sample_bank_payment.xml"),
-        "pacs.008 — Meridian Bank FI credit transfer (3 transactions)": Path("data/samples/internal/sample_bank_fi_transfer.xml"),
+        "pain.001 — Meridian Bank payment initiation (XML, 46 fields)": Path("data/samples/internal/sample_bank_payment.xml"),
+        "pacs.008 — Meridian Bank FI credit transfer (XML, 3 transactions)": Path("data/samples/internal/sample_bank_fi_transfer.xml"),
+        "pacs.008 — Meridian Bank FI transfer field specification (CSV)": Path("data/samples/internal/sample_bank_fi_transfer_spec.csv"),
+        "camt.053 — Meridian Bank statement feed (JSON)": Path("data/samples/internal/sample_bank_statement.json"),
+        "tsrv.001 — Meridian Bank guarantee application (XML, trade finance)": Path("data/samples/internal/sample_bank_guarantee.xml"),
     }
+
+    _PREVIEW_LANGUAGE = {".xml": "xml", ".json": "json", ".csv": "text"}
 
     sample_choice = st.selectbox(
         "Or use a built-in sample",
@@ -546,66 +473,156 @@ with tab_transform:
     if selected_sample_path is not None:
         if selected_sample_path.exists():
             with st.expander("👁️ Preview sample internal message"):
-                st.code(selected_sample_path.read_text(), language="xml")
+                st.code(
+                    selected_sample_path.read_text(encoding="utf-8"),
+                    language=_PREVIEW_LANGUAGE.get(selected_sample_path.suffix.lower(), "text"),
+                )
         else:
             st.warning(f"Sample file not found: {selected_sample_path}")
 
     st.divider()
 
+    analysis_input: tuple[bytes, str] | None = None
     if st.button("🔍 Analyse & Map", type="primary", use_container_width=True, key="btn_analyse"):
         if not api_key:
-            st.error("Please enter your Anthropic API Key in the sidebar.")
-            st.stop()
-
-        xml_content = None
-        if selected_sample_path is not None:
+            st.error("Please enter your Anthropic API Key in the sidebar and press Apply.")
+        elif selected_sample_path is not None:
             if selected_sample_path.exists():
-                xml_content = selected_sample_path.read_text(encoding="utf-8")
+                analysis_input = (
+                    selected_sample_path.read_bytes(), selected_sample_path.name
+                )
             else:
                 st.error(f"Sample file not found: {selected_sample_path}")
-                st.stop()
         elif internal_file:
-            xml_content = internal_file.read().decode("utf-8")
+            analysis_input = (internal_file.read(), internal_file.name)
         else:
             st.error("Please upload an internal message or select a sample.")
-            st.stop()
+
+    if analysis_input is not None:
+        source_bytes, source_name = analysis_input
+        analysis_ok = False
+        run_started = time.perf_counter()
+        run_detail: dict = {
+            "source_name": source_name,
+            "source_format": Path(source_name).suffix.lstrip(".").upper() or "unknown",
+            "source_bytes": len(source_bytes),
+        }
+        run_status = "ok"
 
         with st.spinner("SwiftSage is analysing your internal message — this take few minutes..."):
             try:
-                from src.transformer.message_parser import parse_xml_fields
-                from src.transformer.field_mapper import FieldMapper
+                from src.transformer.message_parser import parse_fields
+                from src.transformer.field_mapper import (
+                    MAX_MAPPED_FIELDS, FieldMapper, select_fields,
+                )
                 from src.transformer import gap_analyzer
-                from src.transformer.requirements_generator import generate_requirements_doc
+                from src.transformer.requirements_generator import (
+                    Provenance, generate_requirements_doc,
+                )
+                from src.transformer.source_classifier import (
+                    detect_family, mismatch_warning,
+                )
+                from src.transformer.target_schema import TargetSchema
 
-                fields   = parse_xml_fields(xml_content)
+                fields   = parse_fields(source_bytes, source_name)
+                source_family, family_evidence = detect_family(fields)
+                family_note = mismatch_warning(
+                    source_family, target_msg, family_evidence
+                )
                 mapper   = FieldMapper()
-                mappings = mapper.map(fields, target_msg)
+                selected, deferred = select_fields(fields)
+                mappings = mapper.map(selected, target_msg)
                 gaps     = gap_analyzer.analyze(mappings, target_msg)
-                doc_bytes = generate_requirements_doc(mappings, gaps, target_msg)
 
-                st.session_state.transform_mappings  = mappings
-                st.session_state.transform_gaps      = gaps
-                st.session_state.transform_target    = target_msg
-                st.session_state.transform_doc_bytes = doc_bytes
+                schema = TargetSchema.for_message_type(target_msg)
+                provenance = Provenance(
+                    model=os.environ.get("AGENT_MODEL", "claude-sonnet-4-6"),
+                    source_name=source_name,
+                    source_format=Path(source_name).suffix.lstrip(".").upper() or "unknown",
+                    input_hash=Provenance.hash_input(source_bytes),
+                    schema_source=(
+                        f"vendored XSD, {len(schema)} paths" if schema
+                        else "no vendored XSD for this target"
+                    ),
+                    source_family=source_family or "",
+                    gap_table_origin=gaps[0].origin if gaps else "expert",
+                    field_count=len(fields),
+                    fields_mapped=len(selected),
+                )
+                doc_bytes = generate_requirements_doc(
+                    mappings, gaps, target_msg,
+                    source_label=f"Internal message {source_name}",
+                    provenance=provenance,
+                )
+
+                st.session_state.transform_mappings   = mappings
+                st.session_state.transform_gaps       = gaps
+                st.session_state.transform_target     = target_msg
+                st.session_state.transform_doc_bytes  = doc_bytes
+                st.session_state.transform_provenance = provenance
+                st.session_state.transform_family_note = family_note
+                analysis_ok = True
+
+                from src.transformer import mapping_validator as _validator
+                run_detail.update(
+                    fields_parsed=len(fields),
+                    fields_mapped=len(selected),
+                    fields_deferred=len(deferred),
+                    source_family=source_family or "unknown",
+                    family_mismatch=bool(family_note),
+                    gaps_open=len([g for g in gaps if not g.is_resolved]),
+                    gaps_blocking=len([
+                        g for g in gaps
+                        if g.gap_type == "BLOCKING" and not g.is_resolved
+                    ]),
+                    gap_table_origin=provenance.gap_table_origin,
+                    path_checks=_validator.summarise(mappings),
+                    doc_bytes=len(doc_bytes or b""),
+                )
 
             except Exception as exc:
                 log.exception("Transform Advisor analysis failed")
                 st.error(f"Analysis failed: {exc}")
-                st.stop()
+                run_status = "error"
+                run_detail["error"] = f"{type(exc).__name__}: {exc}"
+            finally:
+                run_log.record(
+                    run_log.TRANSFORM,
+                    target_msg,
+                    status=run_status,
+                    duration_ms=int((time.perf_counter() - run_started) * 1000),
+                    **run_detail,
+                )
 
-        st.success(
-            f"Analysis complete — {len(mappings)} fields mapped, "
-            f"{len([g for g in gaps if not g.is_resolved])} open gaps identified."
-        )
+        if analysis_ok:
+            st.success(
+                f"Analysis complete — {len(mappings)} fields mapped, "
+                f"{len([g for g in gaps if not g.is_resolved])} open gaps identified."
+            )
+            if deferred:
+                st.info(
+                    f"To keep the run within budget, only the {MAX_MAPPED_FIELDS} most "
+                    f"business-significant fields were sent to the model. "
+                    f"{len(deferred)} of {len(fields)} source fields were deferred — "
+                    "repeated occurrences of a structure already mapped, and internal "
+                    "control fields. Map them in a follow-up run if the demo needs them.",
+                    icon="💡",
+                )
+                with st.expander(f"Fields deferred from this run ({len(deferred)})"):
+                    st.code("\n".join(f.xpath for f in deferred), language="text")
 
     # ── Results ─────────────────────────────────────────────────────────────────
     if st.session_state.transform_mappings is not None:
         import pandas as pd
 
-        mappings  = st.session_state.transform_mappings
-        gaps      = st.session_state.transform_gaps
-        target    = st.session_state.transform_target
-        doc_bytes = st.session_state.transform_doc_bytes
+        from src.transformer import mapping_validator
+        from src.transformer.target_schema import RENAMED, RESOLVED, UNRESOLVED
+
+        mappings   = st.session_state.transform_mappings
+        gaps       = st.session_state.transform_gaps
+        target     = st.session_state.transform_target
+        doc_bytes  = st.session_state.transform_doc_bytes
+        provenance = st.session_state.transform_provenance
 
         # Summary metrics
         direct   = sum(1 for m in mappings if m.mapping_type == "DIRECT")
@@ -613,19 +630,44 @@ with tab_transform:
         unmapped = sum(1 for m in mappings if m.mapping_type == "UNMAPPED")
         blocking = sum(1 for g in gaps if g.gap_type == "BLOCKING" and not g.is_resolved)
         enrichmt = sum(1 for g in gaps if g.gap_type == "ENRICHMENT" and not g.is_resolved)
+        checks   = mapping_validator.summarise(mappings)
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("✅ DIRECT",    direct)
-        c2.metric("🔧 DERIVED",   derived)
-        c3.metric("➖ UNMAPPED",  unmapped)
-        c4.metric("🔴 BLOCKING",  blocking, delta="gaps" if blocking else None,
-                  delta_color="inverse")
-        c5.metric("🟠 ENRICHMENT", enrichmt)
+        section("2. Analysis summary", f"Target message: {target}")
+        if st.session_state.transform_family_note:
+            st.error(
+                "**Source and target belong to different message families.** "
+                + st.session_state.transform_family_note,
+                icon="🚨",
+            )
+        stat_cards([
+            ("Direct",     direct,   "1:1 field matches",        "#10B981"),
+            ("Derived",    derived,  "needs computation",        "#F59E0B"),
+            ("Unmapped",   unmapped, "no ISO equivalent",        "#94A3B8"),
+            ("Blocking",   blocking, "business decision needed", "#EF4444"),
+            ("Enrichment", enrichmt, "reference data needed",    "#4F46E5"),
+        ])
 
-        st.divider()
+        st.write("")
+        stat_cards([
+            ("Schema-confirmed", checks.get(RESOLVED, 0),
+             f"paths verified in {target}", "#10B981"),
+            ("Path differs", checks.get(RENAMED, 0),
+             "element sits elsewhere", "#F59E0B"),
+            ("Not in schema", checks.get(UNRESOLVED, 0),
+             "downgraded to LOW confidence", "#EF4444"),
+        ])
+        if checks.get(UNRESOLVED, 0) or checks.get(RENAMED, 0):
+            st.warning(
+                "Some proposed ISO 20022 paths could not be confirmed against the "
+                f"{target} schema. They are flagged in the mapping table and in the "
+                "requirements document, and their confidence has been downgraded.",
+                icon="⚠️",
+            )
+
+        st.write("")
 
         # Field mapping table
-        st.subheader("Field Mapping Table")
+        section("3. Field mapping table", "Colour-coded by mapping type.")
 
         _MAP_BG = {
             "DIRECT":   "#d4edda",
@@ -646,7 +688,10 @@ with tab_transform:
                 "Mapping Type":      m.mapping_type,
                 "ISO 20022 Target":  m.iso20022_element or m.iso20022_xpath or "—",
                 "Confidence":        m.confidence,
-                "Business Rule":     m.business_rule,
+                "Schema Check":      m.validation,
+                "Business Rule":     " | ".join(
+                    p for p in (m.business_rule, m.validation_note) if p
+                ),
             }
             for m in mappings
         ])
@@ -656,10 +701,10 @@ with tab_transform:
             height=380,
         )
 
-        st.divider()
+        st.write("")
 
         # Gap register
-        st.subheader("Gap Register")
+        section("4. Gap register", "Open gaps that must be resolved before go-live.")
 
         _GAP_BG = {
             "BLOCKING":    "#f8d7da",
@@ -692,44 +737,79 @@ with tab_transform:
         else:
             st.success("No open gaps — all mandatory fields have a source mapping.")
 
-        st.divider()
+        st.write("")
 
         # Download
-        st.subheader("Download Requirements Document")
-        st.caption(
-            "The Word document includes: executive summary, complete field mapping table, "
-            "gap register, unmapped fields register, open questions, and next steps."
+        section(
+            "5. Requirements document",
+            "Includes executive summary, full field mapping table with schema "
+            "checks, gap register, unmapped fields, assumptions, open questions, "
+            "next steps, and a provenance record.",
         )
         if doc_bytes:
             st.download_button(
                 label="📥 Download Transformation Requirements Document (.docx)",
                 data=doc_bytes,
-                file_name=f"SwiftSage_Transform_Requirements_{target}.docx",
+                file_name=(
+                    f"SwiftSage_Transform_Requirements_{target}"
+                    + (f"_{Path(provenance.source_name).stem}" if provenance else "")
+                    + ".docx"
+                ),
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 use_container_width=True,
                 type="primary",
             )
+
+        if provenance is not None:
+            with st.expander("🧾 Provenance — inputs, schema and model behind this run"):
+                st.table(
+                    pd.DataFrame(
+                        provenance.rows(target), columns=["Item", "Value"]
+                    ).set_index("Item")
+                )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — XML Diff
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_diff:
-    st.header("XML Semantic Comparator")
-    st.caption(
-        "Compare two ISO 20022 XML versions. Changes are classified as "
-        "BREAKING / WARNING / BENIGN / INFO with a 0–100 business impact score."
+    hero(
+        "XML Semantic Comparator",
+        "Compare two ISO 20022 XML versions. Every change is classified as "
+        "BREAKING / WARNING / BENIGN / INFO with a 0–100 business impact score.",
+        ["Semantic diff", "Impact score", "Word / Markdown assessment"],
     )
+
+    # Demo pairs: payments (pain.001) and trade finance (tsrv undertaking
+    # amendment, tsmt baseline-report version upgrade).
+    _DIFF_SAMPLES_A = {
+        "Payment sample (pain.001.001.09)": "data/samples/pain001_v1.xml",
+        "Trade sample (tsrv.001.001.01 guarantee)": "data/samples/trade/tsrv001_guarantee_v1.xml",
+        "Trade sample (tsmt.011.001.03 baseline report)": "data/samples/trade/tsmt011_baseline_v3.xml",
+    }
+    _DIFF_SAMPLES_B = {
+        "Payment sample (amended pain.001.001.09)": "data/samples/pain001_v2.xml",
+        "Payment sample (upgrade to pain.001.001.12)": "data/samples/pain001_v12_upgrade.xml",
+        "Trade sample (amended guarantee)": "data/samples/trade/tsrv001_guarantee_v2.xml",
+        "Trade sample (upgrade to tsmt.011.001.04)": "data/samples/trade/tsmt011_baseline_v4.xml",
+    }
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.subheader("Baseline (A)")
+        section("Baseline (A)")
         xml_a_option = st.radio(
-            "Source A", ["Use sample (pain.001 v1)", "From uploaded files", "Paste XML"],
+            "Source A",
+            [
+                "Payment sample (pain.001.001.09)",
+                "Trade sample (tsrv.001.001.01 guarantee)",
+                "Trade sample (tsmt.011.001.03 baseline report)",
+                "From uploaded files",
+                "Paste XML",
+            ],
             key="src_a", horizontal=True,
         )
-        if xml_a_option == "Use sample (pain.001 v1)":
-            xml_a_path = "data/samples/pain001_v1.xml"
+        if xml_a_option in _DIFF_SAMPLES_A:
+            xml_a_path = _DIFF_SAMPLES_A[xml_a_option]
         elif xml_a_option == "From uploaded files":
             if st.session_state.uploaded_files:
                 sel_a = st.selectbox("File A", list(st.session_state.uploaded_files.keys()), key="sel_a")
@@ -747,13 +827,21 @@ with tab_diff:
                 xml_a_path = None
 
     with col_b:
-        st.subheader("Revised (B)")
+        section("Revised (B)")
         xml_b_option = st.radio(
-            "Source B", ["Use sample (pain.001 v2)", "From uploaded files", "Paste XML"],
+            "Source B",
+            [
+                "Payment sample (amended pain.001.001.09)",
+                "Payment sample (upgrade to pain.001.001.12)",
+                "Trade sample (amended guarantee)",
+                "Trade sample (upgrade to tsmt.011.001.04)",
+                "From uploaded files",
+                "Paste XML",
+            ],
             key="src_b", horizontal=True,
         )
-        if xml_b_option == "Use sample (pain.001 v2)":
-            xml_b_path = "data/samples/pain001_v2.xml"
+        if xml_b_option in _DIFF_SAMPLES_B:
+            xml_b_path = _DIFF_SAMPLES_B[xml_b_option]
         elif xml_b_option == "From uploaded files":
             if st.session_state.uploaded_files:
                 sel_b = st.selectbox("File B", list(st.session_state.uploaded_files.keys()), key="sel_b")
@@ -778,28 +866,79 @@ with tab_diff:
         )
         ignore_tags = [t.strip() for t in ignore_input.split(",") if t.strip()]
 
+    with st.expander("📐 Schema-aware classification (optional XSD)"):
+        from src.connectors.schema_bundle import bundle_files
+        schema_choices = {"None — rule-based classification only": None}
+        schema_choices.update(
+            {f"{p.stem} ({p.parent.name})": str(p) for p in bundle_files()}
+        )
+        schema_label = st.selectbox(
+            "Validate and classify against", list(schema_choices.keys()),
+            key="diff_schema_choice",
+            help="With an XSD, newly added mandatory fields are graded BREAKING "
+                 "rather than informational, and both messages are validated.",
+        )
+        schema_path = schema_choices[schema_label]
+
     if st.button("🔍 Compare", type="primary", use_container_width=True):
         if not xml_a_path or not xml_b_path:
             st.error("Please select both XML files.")
+            st.session_state.diff_result = None
         else:
             with st.spinner("Comparing..."):
-                from src.comparator.xml_comparator import XMLComparator
-                cmp = XMLComparator(ignore_tags=ignore_tags)
-                result = cmp.compare(xml_a_path, xml_b_path)
+                _compare_and_record(
+                    xml_a_path, xml_b_path, schema_path, ignore_tags
+                )
 
+    result = st.session_state.get("diff_result")
+    if result is not None:
+        from src.comparator.impact_report import (
+            markdown_impact_report, risk_rating, word_impact_report,
+        )
+        schema_used = st.session_state.get("diff_schema")
+
+        if result.parse_error:
+            st.error(result.parse_error)
+        else:
+            if result.message_type_a != result.message_type_b:
+                st.info(
+                    f"Version upgrade detected: **{result.message_type_a} → "
+                    f"{result.message_type_b}**. Differences below exclude the "
+                    "namespace change on every element, which is reported once."
+                )
+
+            if schema_used:
+                for label, valid, errors in (
+                    ("Baseline (A)", result.is_valid_a, result.validation_errors_a),
+                    ("Revised (B)", result.is_valid_b, result.validation_errors_b),
+                ):
+                    if valid:
+                        st.success(f"{label} is valid against {Path(schema_used).stem}.")
+                    else:
+                        with st.expander(
+                            f"⚠️ {label} does not validate against "
+                            f"{Path(schema_used).stem} ({len(errors)} finding(s))"
+                        ):
+                            for err in errors[:20]:
+                                st.write(f"- {err}")
+
+            # Same rating the exported impact assessment reports, so the two
+            # never disagree.
             score = result.breaking_score
-            color = "🔴" if score >= 60 else "🟠" if score >= 30 else "🟢"
+            rating = risk_rating(score, len(result.breaking))
+            color = {"HIGH": "🔴", "MEDIUM": "🟠"}.get(rating, "🟡" if rating == "LOW-MEDIUM" else "🟢")
             st.metric(
                 label="Breaking-Change Score",
                 value=f"{score}/100",
-                delta=f"{color} {'HIGH RISK' if score >= 60 else 'MEDIUM RISK' if score >= 30 else 'LOW RISK'}",
+                delta=f"{color} {rating} RISK",
             )
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Diffs",   len(result.diffs))
-            col2.metric("🔴 BREAKING",   len(result.breaking))
-            col3.metric("🟠 WARNING",    len(result.warnings))
-            col4.metric("🟢 BENIGN",     len(result.benign))
+            stat_cards([
+                ("Total diffs", len(result.diffs),    "changes detected",   "#4F46E5"),
+                ("Breaking",    len(result.breaking), "will reject or fail", "#EF4444"),
+                ("Warning",     len(result.warnings), "needs review",        "#F59E0B"),
+                ("Benign",      len(result.benign),   "safe to ignore",      "#10B981"),
+            ])
 
             if result.diffs:
                 import pandas as pd
@@ -819,14 +958,45 @@ with tab_diff:
                     df.style.apply(_highlight, axis=1),
                     use_container_width=True, height=400,
                 )
+                with st.expander("🧮 How the score was calculated"):
+                    st.dataframe(
+                        pd.DataFrame(result.score_breakdown),
+                        use_container_width=True, hide_index=True,
+                    )
+                    st.caption(
+                        "Score = points awarded ÷ points if every change were "
+                        "BREAKING. Weights are configurable per severity."
+                        + ("  Classification used the selected XSD."
+                           if result.schema_aware else
+                           "  No XSD selected — rule-based classification only.")
+                    )
+
+                section("Business impact assessment")
                 col_dl1, col_dl2 = st.columns(2)
                 col_dl1.download_button(
-                    "📥 Download JSON Report", data=result.to_json(),
-                    file_name="diff_report.json", mime="application/json",
+                    "📥 Impact Assessment (.docx)",
+                    data=word_impact_report(result),
+                    file_name="SwiftSage_Impact_Assessment.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
                 )
                 col_dl2.download_button(
-                    "📥 Download Text Report", data=result.human_report(),
+                    "📥 Impact Assessment (.md)",
+                    data=markdown_impact_report(result),
+                    file_name="SwiftSage_Impact_Assessment.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+                col_dl3, col_dl4 = st.columns(2)
+                col_dl3.download_button(
+                    "📥 Technical JSON Report", data=result.to_json(),
+                    file_name="diff_report.json", mime="application/json",
+                    use_container_width=True,
+                )
+                col_dl4.download_button(
+                    "📥 Technical Text Report", data=result.human_report(),
                     file_name="diff_report.txt", mime="text/plain",
+                    use_container_width=True,
                 )
             else:
                 st.success("No differences found after applying ignore rules.")
@@ -836,14 +1006,18 @@ with tab_diff:
 # TAB 4 — Standards Library
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_library:
-    st.header("Local Standards Library")
-    st.caption("Downloaded ISO 20022 schemas and artefacts.")
+    hero(
+        "Standards Library",
+        "Every ISO 20022 schema and artefact downloaded to this workspace, "
+        "filterable by message set and artefact type.",
+        ["XSD", "Samples", "MUG", "MDR"],
+    )
 
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
         ms_filter = st.selectbox(
             "Filter by message set",
-            ["All", "pain", "pacs", "camt", "acmt", "auth", "reda"],
+            ["All", *ISO20022_MESSAGE_SETS],
         )
     with col_filter2:
         type_filter = st.selectbox(
@@ -871,10 +1045,192 @@ with tab_library:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Help
+# TAB 5 — Observability
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_obs:
+    hero(
+        "Run observability",
+        "Every chat turn, grounding lookup, mapping run and comparison is timed and "
+        "recorded to a local JSONL log — no external service, works offline.",
+        ["Local only", "Durations", "Tool calls", "Outcomes"],
+    )
+
+    col_kinds, col_actions = st.columns([3, 1])
+    with col_kinds:
+        kind_labels = {
+            run_log.CHAT: "Chat turns",
+            run_log.TOOL: "Tool calls",
+            run_log.TRANSFORM: "Transform runs",
+            run_log.DIFF: "XML comparisons",
+        }
+        chosen = st.multiselect(
+            "Show",
+            list(kind_labels),
+            default=list(kind_labels),
+            format_func=lambda k: kind_labels[k],
+        )
+    with col_actions:
+        st.write("")
+        if st.button("↻ Refresh", use_container_width=True, key="obs_refresh"):
+            st.rerun()
+
+    events = run_log.read_events(limit=500, kinds=chosen)
+    stats = run_log.summarise(events)
+
+    if not events:
+        st.info(
+            "No runs recorded yet. Compare two messages in **XML Diff**, or run the "
+            "**Transform Advisor**, and the timings appear here.",
+            icon="📈",
+        )
+    else:
+        stat_cards([
+            ("Events",          stats["events"],        "recorded units of work", "#4F46E5"),
+            ("Chat turns",      stats["chat_turns"],    "agent conversations",    "#0EA5E9"),
+            ("Transform runs",  stats["by_kind"].get(run_log.TRANSFORM, {}).get("runs", 0),
+             "mapping runs",    "#10B981"),
+            ("Comparisons",     stats["by_kind"].get(run_log.DIFF, {}).get("runs", 0),
+             "version diffs",   "#F59E0B"),
+            ("Errors",          stats["errors"],        "failed runs",            "#EF4444"),
+        ])
+
+        st.write("")
+        section(
+            "Latency by activity",
+            "Median and slowest duration per activity — the evidence behind "
+            "\"minutes, not weeks\".",
+        )
+        import pandas as pd
+
+        if stats["by_kind"]:
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Activity": kind_labels.get(kind, kind),
+                        "Runs": row["runs"],
+                        "Median (s)": row["median_s"],
+                        "Slowest (s)": row["slowest_s"],
+                    }
+                    for kind, row in stats["by_kind"].items()
+                ]).set_index("Activity"),
+                use_container_width=True,
+            )
+
+        effort = metrics.effort_summary(events)
+        if effort["rows"]:
+            st.write("")
+            section(
+                "Effort vs the manual baseline",
+                "Measured run time against an estimate of the same deliverable "
+                "produced by hand. The estimate is stated, not hidden.",
+            )
+            stat_cards([
+                ("Runs", effort["runs"], "successful deliverables", "#4F46E5"),
+                ("SwiftSage", effort["automated_label"],
+                 "measured from the run log", "#0EA5E9"),
+                ("Manual equivalent", f"{effort['manual_days']} d",
+                 f"{effort['manual_hours']} h of BA + SME time", "#F59E0B"),
+                ("Effort avoided", f"{effort['hours_saved']} h",
+                 "on this session's runs", "#10B981"),
+                ("Speed-up", effort["speedup_label"],
+                 "manual ÷ measured", "#8B5CF6"),
+            ])
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Deliverable": row["deliverable"],
+                        "Runs": row["runs"],
+                        "SwiftSage": row["automated_label"],
+                        "Manual (h each)": row["baseline_hours_each"],
+                        "Manual (h total)": row["manual_hours"],
+                        "Avoided (h)": row["hours_saved"],
+                    }
+                    for row in effort["rows"]
+                ]).set_index("Deliverable"),
+                use_container_width=True,
+            )
+            with st.expander("📐 Assumptions behind these numbers"):
+                for line in metrics.assumptions():
+                    st.markdown(f"- {line}")
+                st.caption(
+                    "Override a baseline before a demo with "
+                    "`SWIFTSAGE_BASELINE_TRANSFORM_HOURS`, "
+                    "`SWIFTSAGE_BASELINE_DIFF_HOURS` or "
+                    "`SWIFTSAGE_BASELINE_CHAT_HOURS`."
+                )
+
+        if stats["chat_turns"]:
+            rate = stats["grounded_rate"]
+            st.metric(
+                "Grounded chat turns",
+                f"{stats['grounded_turns']}/{stats['chat_turns']}",
+                delta=f"{rate}% consulted the schemas" if rate is not None else None,
+            )
+            st.caption(
+                "A turn counts as grounded when the agent called "
+                "`lookup_iso20022_element` or `compare_element_across_versions` — i.e. "
+                "answered from the vendored XSDs rather than model recall."
+            )
+
+        if stats["tool_counts"]:
+            st.write("")
+            section("Tool usage", "Which capabilities the agent actually reached for.")
+            st.dataframe(
+                pd.DataFrame(
+                    sorted(stats["tool_counts"].items(), key=lambda kv: -kv[1]),
+                    columns=["Tool", "Calls"],
+                ).set_index("Tool"),
+                use_container_width=True,
+            )
+
+        st.write("")
+        section("Recent activity", "Newest first. Detail holds counts and outcomes only.")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "When (UTC)": e.ts.replace("T", " ").replace("+00:00", ""),
+                    "Activity":   kind_labels.get(e.kind, e.kind),
+                    "Subject":    e.name,
+                    "Status":     e.status,
+                    "Seconds":    e.duration_s,
+                    "Detail":     json.dumps(e.detail, ensure_ascii=False),
+                }
+                for e in events[:100]
+            ]),
+            use_container_width=True,
+            height=380,
+        )
+
+        col_dl, col_clear = st.columns(2)
+        with col_dl:
+            log_file = run_log.log_path()
+            if log_file.exists():
+                st.download_button(
+                    "📥 Download run log (.jsonl)",
+                    data=log_file.read_bytes(),
+                    file_name="swiftsage_runs.jsonl",
+                    mime="application/x-ndjson",
+                    use_container_width=True,
+                )
+        with col_clear:
+            if st.button(
+                "🗑️ Clear run log", use_container_width=True, key="obs_clear"
+            ):
+                run_log.clear()
+                st.rerun()
+
+        st.caption(f"Log file: `{run_log.log_path()}`")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — Help
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_help:
-    st.header("SwiftSage — Quick Start Guide")
+    hero(
+        "Quick start guide",
+        "Everything you need to run your first mapping, comparison, or expert question.",
+        ["2 minute setup"],
+    )
     st.markdown("""
 ## Getting Started
 
@@ -919,9 +1275,13 @@ Ask anything in plain English:
 ## 🔍 XML Diff — Compare Two ISO 20022 Messages
 
 Compare any two ISO 20022 XML versions and get:
-- A 0–100 breaking-change score
+- A 0–100 breaking-change score, with the per-severity calculation behind it
 - Classification of every difference: BREAKING / WARNING / BENIGN / INFO
-- Downloadable report (JSON or text)
+- Optional schema-aware grading — pick a vendored XSD to validate both messages and
+  grade newly added **mandatory** fields as BREAKING
+- Version upgrades across message versions (e.g. **pain.001.001.09 → .12**), where the
+  namespace change is reported once instead of on every element
+- Downloadable business impact assessment (Word or Markdown) plus technical JSON / text
 
 ---
 

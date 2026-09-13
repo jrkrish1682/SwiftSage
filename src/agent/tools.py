@@ -481,6 +481,93 @@ def generate_transform_requirements(
 
 
 @tool
+def lookup_iso20022_element(term: str, message_type: str = "") -> str:
+    """
+    Look up an ISO 20022 element in the local standards library and return its
+    verified definition: business meaning, path, whether it is mandatory, type,
+    length or pattern constraints, allowed code values, and the message version
+    and schema file the facts come from.
+
+    Use this before stating anything about a specific field — element names,
+    optionality, code lists and lengths differ between message versions, and
+    this is the only source that reflects the schemas actually in the library.
+
+    Args:
+        term:         ISO 20022 short name ("CdtrAgt"), a path fragment
+                      ("PmtId/EndToEndId") or a business phrase
+                      ("beneficiary bank", "charges", "guarantee amount").
+        message_type: Restrict to one message type or family
+                      ("pain.001.001.09", "pain.001", "camt").  Empty searches
+                      every version in the library.
+
+    Returns:
+        Grounded element descriptions, each ending in a source citation, or a
+        statement that the term is not in the library.
+    """
+    from src.storage.schema_index import SchemaIndex
+
+    index = SchemaIndex.load()
+    hits = index.search(term, message_type=message_type)
+    if not hits:
+        scope = f" in {message_type}" if message_type else ""
+        return (
+            f"'{term}' matches no element{scope} in the standards library.\n"
+            f"Library covers: {', '.join(index.message_types())}.\n"
+            "Say the library does not confirm this element rather than "
+            "describing it from memory."
+        )
+    return "\n\n".join(hit.render() for hit in hits)
+
+
+@tool
+def compare_element_across_versions(term: str, message_type: str = "") -> str:
+    """
+    Show how one element appears in every version of its message family held in
+    the standards library — present or absent, its path, and its occurrence.
+
+    Use this for "did this change between versions?" questions so the answer
+    reflects the schemas rather than recall.
+
+    Args:
+        term:         ISO 20022 short name or business phrase for the element.
+        message_type: Optional message type or family to disambiguate the term
+                      (e.g. "pain.001" when the name occurs in several families).
+
+    Returns:
+        Per-version presence report with the business meaning and citations.
+    """
+    from src.storage.schema_index import SchemaIndex
+
+    index = SchemaIndex.load()
+    presences = index.versions_of(term, message_type=message_type)
+    if not presences:
+        return (
+            f"'{term}' matches no element in the standards library "
+            f"({', '.join(index.message_types())})."
+        )
+
+    resolved = next(p.hit for p in presences if p.hit is not None)
+    lines = [
+        f"{resolved.business_label} ({resolved.node.name}) across the "
+        f"{resolved.message_type.split('.')[0]} versions in the library:",
+        "",
+    ]
+    lines += [f"  {p.describe()}" for p in presences]
+
+    missing = [p.message_type for p in presences if not p.present]
+    if missing and len(missing) < len(presences):
+        lines.append(
+            f"\nThe element is absent from {', '.join(missing)} — treat that as "
+            "a renamed or removed element and check the release notes before "
+            "telling the user it simply disappeared."
+        )
+    if resolved.glossary:
+        lines.append(f"\nBusiness meaning: {resolved.glossary.definition}")
+    lines.append(f"\nSource: {resolved.schema_file} and siblings in data/standards/")
+    return "\n".join(lines)
+
+
+@tool
 def explain_message_flow(message_type: str) -> str:
     """
     Explain the ISO 20022 business process flow for a given message type,

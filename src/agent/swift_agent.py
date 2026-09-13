@@ -9,6 +9,7 @@ Architecture
 from __future__ import annotations
 
 import os
+import time
 from typing import Iterator, Optional
 
 from langchain_anthropic import ChatAnthropic
@@ -17,9 +18,11 @@ from langchain_core.tools import BaseTool
 from langgraph.prebuilt import create_react_agent
 
 from config.settings import settings
+from src.observability import run_log
 from src.agent.tools import (
     analyze_internal_message,
     batch_compare_xml_folders,
+    compare_element_across_versions,
     compare_xml_messages,
     detect_message_type,
     explain_message_flow,
@@ -28,12 +31,20 @@ from src.agent.tools import (
     generate_transform_requirements,
     identify_gaps,
     list_standards_library,
+    lookup_iso20022_element,
     map_to_iso20022,
     validate_xml,
 )
 from src.utils.helpers import get_logger
 
 log = get_logger(__name__)
+
+# Tools that consult the vendored schemas. A field-level answer that called none of
+# them was answered from model recall — the run log makes that visible.
+GROUNDING_TOOLS = frozenset({
+    "lookup_iso20022_element",
+    "compare_element_across_versions",
+})
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are SwiftSage — an expert ISO 20022 / SWIFT advisor built specifically
@@ -46,8 +57,12 @@ XML detail only when the user explicitly asks for it.
 YOUR DOMAIN EXPERTISE:
 - ISO 20022 message types: pain (Payment Initiation), pacs (Payments Clearing & Settlement),
   camt (Cash Management), acmt (Account Management), auth, reda, and others
+- Trade finance messages: tsrv (undertakings — demand guarantees and standby letters of
+  credit, the MX equivalents of MT 760 / MT 767), tsmt (trade services management)
 - SWIFT MX message structure, XSD schemas, and business rules
 - Payment flows: SEPA, SWIFT GPI, CHAPS, BACS, TARGET2, FedNow, CBPR+
+- Trade finance practice: URDG 758, ISP98, UCP 600, demand handling, expiry and
+  amendment lifecycle, advising and confirming bank roles
 - Schema validation, semantic XML comparison, and breaking-change impact assessment
 - Internal-to-ISO 20022 field mapping, gap identification, and transformation requirements
 
@@ -63,6 +78,26 @@ YOUR CAPABILITIES (use the available tools):
 9. EXPLAIN the business process flow, roles, and downstream messages for any ISO 20022 type
 10. GENERATE regression test cases from diffs between message versions
 11. LIST the local Standards Library contents
+12. LOOK UP an element in the Standards Library — business meaning, path, optionality,
+    constraints and code values, with the message version and schema file it came from
+13. COMPARE an element across the message versions in the library — present, absent, moved
+
+GROUNDING RULES (these override your own recall):
+- Before you state anything specific about a field — its path, whether it is mandatory, its
+  length, its allowed code values, or whether it exists at all — call
+  `lookup_iso20022_element`. Element names and optionality differ between versions, and the
+  library holds the schemas this bank is actually migrating against.
+- For "what changed between version X and Y" questions about a field, call
+  `compare_element_across_versions` rather than answering from memory.
+- Cite what you used: name the message version and say the fact came from the schema, e.g.
+  "In pain.001.001.09 this is mandatory (CstmrCdtTrfInitn/GrpHdr/MsgId, from the vendored
+  XSD)." One citation per field claim is enough — do not paste the whole tool output back.
+- If the lookup returns nothing, say the library does not cover it and offer to sync or
+  vendor the schema. Do not fill the gap with a plausible-sounding element name.
+- If the lookup returns structure but no curated business definition, give the structural
+  facts and flag that the business meaning is your interpretation, not a sourced definition.
+- If a lookup contradicts what you were about to say, the lookup wins — and tell the user
+  the version-specific detail that caught it out.
 
 RESPONSE STYLE FOR BA/PO AUDIENCE:
 - Lead every answer with the business meaning or business impact — not the XML structure
@@ -98,7 +133,21 @@ def _extract_text(content) -> str:
     return str(content) if content else ""
 
 
+def _tool_names(messages) -> list[str]:
+    """Names of the tools a completed graph run actually called, in order."""
+    names = []
+    for message in messages:
+        if getattr(message, "type", "") == "tool":
+            name = getattr(message, "name", "") or ""
+            if name:
+                names.append(name)
+    return names
+
+
 ALL_TOOLS: list[BaseTool] = [
+    # Grounding — consult the standards library before answering field questions
+    lookup_iso20022_element,
+    compare_element_across_versions,
     # Transformation Advisor
     analyze_internal_message,
     map_to_iso20022,
@@ -157,14 +206,19 @@ class SWIFTAgent:
 
     def run(self, question: str) -> str:
         """Run a single-turn query and return the final answer."""
+        started = time.perf_counter()
         try:
             messages = self._build_messages(question)
             result = self._graph.invoke({"messages": messages})
             answer = _extract_text(result["messages"][-1].content)
             self._update_history(question, answer)
+            self._record_turn(
+                question, answer, _tool_names(result["messages"]), started, "ok",
+            )
             return answer
         except Exception as exc:
             log.error("Agent error: %s", exc, exc_info=True)
+            self._record_turn(question, "", [], started, "error", error=str(exc))
             return f"Agent encountered an error: {exc}"
 
     def stream(self, question: str) -> Iterator[str]:
@@ -176,6 +230,13 @@ class SWIFTAgent:
         """
         messages = self._build_messages(question)
         full_answer: list[str] = []
+        tools_called: list[str] = []
+        turn_started = time.perf_counter()
+        status = "ok"
+        error: str = ""
+        # A tool starts running once the model stops emitting, so the last agent
+        # token (or the previous tool result) is the best available start time.
+        tool_started = time.perf_counter()
 
         try:
             # stream_mode="messages" gives (chunk, metadata) pairs at token level
@@ -185,18 +246,27 @@ class SWIFTAgent:
             ):
                 node = metadata.get("langgraph_node", "")
 
-                # ── Tool call announcement ─────────────────────────────
-                if node == "tools" and hasattr(chunk, "name") and chunk.name:
-                    text = f"\n🔧 **Tool:** `{chunk.name}`\n"
-                    yield text
-
-                # ── Tool result ────────────────────────────────────────
-                elif node == "tools" and hasattr(chunk, "content") and not hasattr(chunk, "name"):
-                    obs = str(chunk.content)
-                    if len(obs) > 800:
-                        obs = obs[:800] + "\n... [truncated]"
-                    text = f"\n📋 **Result:**\n```\n{obs}\n```\n"
-                    yield text
+                # ── Tool call and its result ───────────────────────────
+                # A completed ToolMessage carries both name and content, so
+                # handle them together; older versions split them across chunks.
+                if node == "tools":
+                    name = getattr(chunk, "name", "") or ""
+                    obs = str(getattr(chunk, "content", "") or "")
+                    if name:
+                        tools_called.append(name)
+                        run_log.record(
+                            run_log.TOOL,
+                            name,
+                            duration_ms=int((time.perf_counter() - tool_started) * 1000),
+                            grounding=name in GROUNDING_TOOLS,
+                            result_chars=len(obs),
+                        )
+                        yield f"\n🔧 **Tool:** `{name}`\n"
+                    if obs:
+                        if len(obs) > 800:
+                            obs = obs[:800] + "\n... [truncated]"
+                        yield f"\n📋 **Result:**\n```\n{obs}\n```\n"
+                    tool_started = time.perf_counter()
 
                 # ── Agent tokens (final answer, streamed) ─────────────
                 elif node == "agent" and isinstance(chunk, AIMessageChunk):
@@ -204,13 +274,19 @@ class SWIFTAgent:
                     if text:
                         full_answer.append(text)
                         yield text
+                    tool_started = time.perf_counter()
 
         except Exception as exc:
             log.error("Stream error: %s", exc, exc_info=True)
+            status, error = "error", str(exc)
             yield f"\n❌ Error: {exc}"
         finally:
             if full_answer:
                 self._update_history(question, "".join(full_answer))
+            self._record_turn(
+                question, "".join(full_answer), tools_called,
+                turn_started, status, error=error,
+            )
 
     def clear_history(self) -> None:
         """Reset conversation memory."""
@@ -220,6 +296,36 @@ class SWIFTAgent:
         return [t.name for t in self.tools]
 
     # ── Private helpers ────────────────────────────────────────────────────
+
+    def _record_turn(
+        self,
+        question: str,
+        answer: str,
+        tools_called: list[str],
+        started: float,
+        status: str,
+        error: str = "",
+    ) -> None:
+        """Log the shape of a chat turn — counts and tool names, never content."""
+        detail: dict = {
+            "question_chars": len(question),
+            "answer_chars": len(answer),
+            "tool_calls": len(tools_called),
+            "tools": sorted(set(tools_called)),
+            "grounding_tool_calls": sum(
+                1 for name in tools_called if name in GROUNDING_TOOLS
+            ),
+            "history_turns": len(self.chat_history) // 2,
+        }
+        if error:
+            detail["error"] = error
+        run_log.record(
+            run_log.CHAT,
+            self.model_name,
+            status=status,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            **detail,
+        )
 
     def _build_messages(self, question: str) -> list:
         """Prepend SystemMessage + chat history + new human turn.

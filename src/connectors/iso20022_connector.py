@@ -13,6 +13,11 @@ The ISO 20022 organisation publishes message set ZIP packages on GitHub:
 Each ZIP contains XSDs + a message definition report (MDR).
 We pull the GitHub releases API to enumerate available packages, then
 download only those we don't already have (incremental sync by checksum).
+
+That catalogue is not reliably available (the releases endpoint 404s, and demo
+environments may have no outbound network at all), so every acquisition path
+falls back to the vendored bundle in `data/standards/` — see
+`src.connectors.schema_bundle`.
 """
 import io
 import re
@@ -23,6 +28,7 @@ from typing import Optional
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from src.connectors.schema_bundle import BUNDLE_VERSION, bundle_files, seed_library
 from src.storage.standards_library import StandardsLibrary
 from src.utils.helpers import get_logger, message_type_from_namespace
 
@@ -76,7 +82,10 @@ class ISO20022Connector:
 
         release = self._fetch_latest_release()
         if release is None:
-            return {"error": "Could not fetch release info from GitHub"}
+            return self._sync_from_bundle(
+                targets,
+                reason="ISO 20022 GitHub catalogue unavailable",
+            )
 
         release_tag = release.get("tag_name", "unknown")
         assets: list[dict] = release.get("assets", [])
@@ -116,11 +125,31 @@ class ISO20022Connector:
                 )
                 added += n
 
+        if added == 0 and skipped == 0:
+            return self._sync_from_bundle(
+                targets,
+                reason=f"no matching assets in release {release_tag}",
+            )
+
         return {
             "release": release_tag,
+            "source": "github",
             "message_sets_requested": targets,
             "artifacts_added": added,
             "artifacts_skipped": skipped,
+        }
+
+    def _sync_from_bundle(self, targets: list[str], reason: str) -> dict:
+        """Seed the library from the vendored XSDs so the demo works offline."""
+        log.warning("Falling back to vendored schema bundle: %s", reason)
+        added = seed_library(self.library)
+        return {
+            "release": BUNDLE_VERSION,
+            "source": "vendored bundle",
+            "reason": reason,
+            "message_sets_requested": targets,
+            "artifacts_added": added,
+            "artifacts_skipped": len(bundle_files()) - added,
         }
 
     def fetch_schema_for_message(self, message_type: str) -> Optional[Path]:
@@ -129,7 +158,8 @@ class ISO20022Connector:
         Triggers a sync of the relevant message set if not already present.
         """
         ms = message_type.split(".")[0]
-        # Check library first
+        # The vendored bundle is free to register — do it before any network call.
+        seed_library(self.library)
         candidates = [
             a for a in self.library.list_artifacts(message_set=ms, artifact_type="xsd")
             if message_type in (a.message_type or "")
