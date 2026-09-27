@@ -33,7 +33,9 @@ mapping specifications live in spreadsheets, requirements quality varies by
 author, and each schema version bump restarts the analysis.
 
 SwiftSage performs the repeatable part of that analysis, so a specialist
-reviews a draft rather than authoring one.
+reviews a draft rather than authoring one — and keeps what the specialist
+confirms, so the institution stops re-deriving it (§ *the knowledge that
+outlasts the programme*, below).
 
 ---
 
@@ -131,6 +133,49 @@ grounding across domains.
 
 ---
 
+## The knowledge that outlasts the programme
+
+The four scenarios all reason about the *published* standard. The **🧠 SME
+Knowledge** tab holds the other half: the institution's own rules, the ISO
+elements they govern, the systems that own them and the incidents they caused.
+It needs no API key. This part has no one-click scenario — walk it as follows.
+
+**What the institution knows** — mode **Knowledge**. Twelve rules ship seeded,
+three each for Payments, Cash, Trade and Securities/Settlement, plus three
+historical incidents. Open `BR-001` (derive an IBAN from sort code and account
+number for cross-border traffic): its condition and action, the real ISO paths
+it governs, the systems that own it, its evidence, and a graph of everything
+linked to it — including the incident it caused. The seeded rules are **mocked
+policy for a fictional bank**, and say so in their own evidence; they are not
+published ISO requirements.
+
+**Why a payment failed in production** — mode **RCA**. Paste a reject reason,
+e.g. *"Rejected by beneficiary bank: invalid account identifier, IBAN missing
+for cross-border payment"*, and optionally the failing XML. **Analyse** ranks
+probable causes from four independent sources: internal rules that were not
+applied, mandatory elements absent from the payload, matching past incidents,
+and elements that exist only in a different version of the message. Each
+finding carries its citations and a HIGH / MEDIUM / LOW likelihood rather than
+a verdict, and it is deterministic — no model call, so it can be argued with.
+A clean payload with a nonsense symptom produces no findings instead of a
+plausible guess.
+
+**How it improves** — expand **This was the cause — record it** on the finding
+the team agrees with. That writes a *confirmed* incident linked to the rule,
+and the graph counts on the tab go up. The same symptom is then explained from
+precedent next time. SwiftSage never promotes its own ranking: anything it
+infers stays a *candidate* until a human confirms it, and retrieval defaults to
+the confirmed set — so a guess cannot reach a prompt or a report as policy.
+*Reset the knowledge graph* returns it to the seeded state before a rehearsal.
+
+The modes **Stories**, **Tests** and **Review** are the next increments on this
+same graph — stories and acceptance criteria for the BA/PO, UAT and regression
+packs, and review of a proposed transformation. They currently render as
+pending. [`VISION.md`](VISION.md) explains why those five uses are one
+knowledge base read five ways.
+
+---
+
 ## The measured numbers
 
 **📈 Observability** times everything that was just run, in a local JSONL log —
@@ -167,6 +212,9 @@ ratio is the business case.
 | Why only 20 fields? | A deliberate token-budget cap with business-relevance ranking; deferred fields are disclosed in the UI and the document. Removing it is a configuration change. |
 | Does it cover other domains? | Payments (pain / pacs / camt) and trade finance (tsrv / tsmt) are demonstrated from nine vendored schema versions. Adding a family means vendoring its XSD plus a mandatory-field register. |
 | What about MT? | Out of scope for the MVP — ISO 20022 MX only. MT → MX advisory is a phase 2 opportunity. |
+| Are the business rules real? | No — the twelve seeded rules and three incidents are mocked policy for a fictional bank so the tab is useful on first run, and their evidence says so. A real deployment accumulates its own. |
+| Could it quote a rule it invented as policy? | No. Inferred knowledge is stored as a *candidate* and rendered as unconfirmed; retrieval defaults to the seeded-or-confirmed set, and only a human promotes a candidate. |
+| Does RCA need a key? | No. It is deterministic over the rules, the incident history and the vendored schemas, so it works offline. |
 
 ---
 
@@ -178,3 +226,5 @@ ratio is the business case.
 | Schema sync reports a GitHub error | Expected without internet or when rate-limited; it falls back to the vendored bundle, and **📚 Library** still lists 9 artefacts. |
 | A scenario card shows a missing asset | The demo file was moved; `pytest tests/test_demo_assets.py` identifies which one. |
 | A mapping run feels slow | It is parsing, mapping, validating and running gap analysis; the Observability tab shows the measured duration afterwards. |
+| RCA returns no probable causes | Expected when nothing matches — it declines to guess. Add the failing payload, or the message version, so the schema and history checks have something to work with. |
+| The knowledge graph carries a previous rehearsal's incidents | **🧠 SME Knowledge → Reset the knowledge graph** returns it to the seeded twelve rules and three incidents. |

@@ -690,3 +690,122 @@ def explain_message_flow(message_type: str) -> str:
         f"'{message_type}' is not a recognised ISO 20022 message type prefix.\n"
         "Valid prefixes: pain, pacs, camt, acmt, auth, reda, colr, sese, seev."
     )
+
+
+# ── Internal knowledge (the institution's own rules, not the standard) ─────────
+
+def _knowledge():
+    """The shared knowledge store, opened (and seeded) on first use."""
+    from src.knowledge.store import KnowledgeStore
+
+    global _KNOWLEDGE
+    if _KNOWLEDGE is None:
+        _KNOWLEDGE = KnowledgeStore.open()
+    return _KNOWLEDGE
+
+
+_KNOWLEDGE = None
+
+
+@tool
+def lookup_internal_business_rule(term: str, domain: str = "") -> str:
+    """
+    Search the institution's own business rules — how THIS bank handles a field
+    or scenario, which the ISO 20022 standard does not say.
+
+    Use this whenever a question is about what the bank does ("how do we handle
+    UK accounts going cross-border?", "what do we do when remittance info is
+    too long?"), as opposed to what the standard permits. Combine it with
+    `lookup_iso20022_element`: the schema gives the structure, this gives the
+    institutional decision.
+
+    Args:
+        term: business phrase, ISO element name, or keyword (e.g. "IBAN",
+            "expiry extension", "closing balance").
+        domain: optional filter — Payments, Cash, Trade or Securities/Settlement.
+
+    Returns:
+        Matching rules with condition, action, severity, the message versions
+        they apply to, and their status (seeded / confirmed / candidate).
+    """
+    store = _knowledge()
+    matches = store.search_rules(term, domain=domain, limit=6)
+    if not matches:
+        return (
+            f"No internal business rule matches '{term}'"
+            + (f" in {domain}" if domain else "")
+            + ". The knowledge graph holds no institutional decision on this — "
+            "say so rather than inventing one, and offer to capture the rule "
+            "from the user in the SME Knowledge tab."
+        )
+    header = (
+        f"{len(matches)} internal rule(s) matching '{term}'. These are the "
+        "institution's own decisions, not ISO 20022 requirements — cite them as "
+        "internal policy and quote the rule ID.\n"
+    )
+    return header + "\n\n".join(rule.render() for rule in matches)
+
+
+@tool
+def list_internal_rules_for_message(message_type: str) -> str:
+    """
+    List the institution's business rules that apply to a given ISO 20022
+    message version — the internal constraints a transformation must satisfy.
+
+    Use this before answering "what do we need to watch out for when we send
+    pacs.008?" or when reviewing a mapping for that target.
+
+    Args:
+        message_type: ISO 20022 message version (e.g. "pacs.008.001.10").
+
+    Returns:
+        The applicable rules, or a statement that none are recorded.
+    """
+    store = _knowledge()
+    rules = store.rules(message_type=message_type)
+    if not rules:
+        return (
+            f"No internal business rules are recorded for {message_type}. "
+            "Only ISO 20022 requirements apply as far as the knowledge graph "
+            "knows — do not imply the bank has a policy here."
+        )
+    lines = [
+        f"{len(rules)} internal rule(s) apply to {message_type} "
+        "(institutional policy, not ISO requirements):",
+        "",
+    ]
+    return "\n".join(lines) + "\n\n".join(rule.render() for rule in rules)
+
+
+@tool
+def diagnose_production_failure(
+    symptom: str,
+    message_type: str = "",
+    payload: str = "",
+) -> str:
+    """
+    Explain why a production message failed, using the institution's business
+    rules, previous incidents and the vendored schemas.
+
+    Use this for "why did this payment reject?" questions. The analysis is
+    deterministic — it ranks probable causes with the evidence each came from —
+    so present the ranking as-is and never upgrade a probable cause to a
+    confirmed one.
+
+    Args:
+        symptom: the reject reason or error text as reported.
+        message_type: ISO 20022 message version, if known.
+        payload: the failing XML, if available.
+
+    Returns:
+        Ranked probable causes with citations, as Markdown.
+    """
+    from src.knowledge import rca
+
+    report = rca.analyse(
+        _knowledge(),
+        payload=payload,
+        symptom=symptom,
+        message_type=message_type,
+    )
+    return report.as_markdown()

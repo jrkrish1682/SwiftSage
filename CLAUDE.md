@@ -11,6 +11,14 @@ Trade demo target: mapping an internal guarantee application → **tsrv.001.001.
 (Undertaking Issuance — the MX equivalent of MT 760), plus a guarantee amendment and a
 `tsmt.011.001.03 → .04` upgrade in the XML Diff tab.
 
+Beyond the migration project, the product goal is to accumulate the **institution's own**
+business logic and tribal SME knowledge — rules, mappings, systems, incidents — as a
+local, cited, human-confirmed graph, and to read it five ways: as an in-house SME, for
+BA/PO requirements and stories, as a UAT/regression test generator, as a reviewer of
+transformation and mapping logic, and for RCA of production defects. Knowledge and RCA
+are built; Stories, Tests and Review are pending modes of the same tab. Intent and
+guarantees: [`docs/VISION.md`](docs/VISION.md).
+
 Architecture, data flows and the reasoning behind each design decision:
 [`docs/DESIGN.md`](docs/DESIGN.md). User-facing usage: [`README.md`](README.md). Demo
 walkthrough: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
@@ -37,13 +45,14 @@ Use the `/run` skill to start the app from Claude Code.
 ## Project structure
 
 ```
-app.py                          # Streamlit UI — 7 tabs (Demo, Chat, Transform Advisor,
-                                #   XML Diff, Library, Observability, Help)
+app.py                          # Streamlit UI — 8 tabs (Demo, Chat, Transform Advisor,
+                                #   XML Diff, SME Knowledge, Library,
+                                #   Observability, Help)
 config/settings.py              # Pydantic-settings config (no secrets)
 src/
   agent/
     swift_agent.py              # LangGraph ReAct agent + streaming
-    tools.py                    # 14 @tool functions
+    tools.py                    # 17 @tool functions
   transformer/
     message_parser.py           # Internal XML / JSON / CSV / XLSX → List[InternalField]
     target_schema.py            # Flattens a vendored XSD → prompt context + path lookup
@@ -64,6 +73,11 @@ src/
     standards_library.py        # Local artefact catalogue
     schema_index.py             # Searchable index over the vendored XSDs (chat grounding)
     iso_glossary.py             # Curated business definitions for ISO element names
+  knowledge/
+    store.py                    # SQLite knowledge graph — typed nodes, edges, evidence
+    seeds.py                    # 12 mocked business rules + 3 historical incidents
+    rca.py                      # Deterministic root-cause ranking over rules/schema/defects
+    graph.py                    # Neighbourhood → Graphviz DOT
   observability/
     run_log.py                  # Local JSONL run log — durations, counts, outcomes
     token_usage.py              # Normalises Anthropic/LangChain token usage; cache maths
@@ -71,9 +85,11 @@ src/
   ui/
     theme.py                    # CSS, hero and section helpers
     demo_scenarios.py           # Rehearsed demo scenarios — assets, presets, talking points
+    knowledge_tab.py            # SME Knowledge tab — Knowledge and RCA modes
     prompt_packs.py             # Chat starter questions per business domain
   utils/helpers.py              # get_logger(), XML helpers
 data/
+  knowledge/knowledge.db        # Knowledge graph — created on first run (git-ignored)
   samples/internal/
     sample_bank_payment.xml     # Meridian Bank demo XML (46 fields)
     sample_bank_fi_transfer.xml # FI credit transfer → pacs.008
@@ -87,6 +103,7 @@ data/
     trade/tsmt011_baseline_v3.xml / _v4.xml   # tsmt.011 .03 → .04 upgrade
   standards/                    # Vendored XSDs — pain, pacs, camt, tsrv, tsmt (9 versions)
 docs/
+  VISION.md                     # The AI-SME vision, the five uses, knowledge lifecycle
   DESIGN.md                     # Architecture, data flows, design decisions, non-goals
   DEMO_SCRIPT.md                # Guided walkthrough, common questions, troubleshooting
 logs/
@@ -170,6 +187,38 @@ logs/
   outcomes only — never message content, XML payloads or credentials; detail values that
   look like a secret are redacted and long strings truncated. `record()` swallows write
   errors so telemetry can never break a demo run.
+- **Institutional knowledge is a typed SQLite graph, not embeddings** —
+  `src/knowledge/store.py` holds business rules, ISO elements, internal fields, systems
+  and defects as nodes with typed edges (`governs`, `maps_to`, `caused`, `owned_by`, …).
+  A BA has to be able to enumerate, inspect and edit a rule, and an answer has to name
+  the rule it came from; a similarity score over embeddings gives neither. A connection
+  is opened per operation rather than held, because Streamlit reruns the script on every
+  interaction and possibly from another thread.
+- **Candidate vs confirmed is the load-bearing invariant** — anything SwiftSage infers
+  lands as `candidate` and is rendered as unconfirmed everywhere it appears; only a human
+  promotes it. `rules()` and `search_rules()` default to `AUTHORITATIVE` (`seeded`,
+  `confirmed`), so a caller that forgets to filter cannot inject a guess into a prompt or
+  a report, and `put_node()` never downgrades an already-confirmed node when the same fact
+  is re-observed. Seeded rules carry evidence saying they are mocked demo policy for a
+  fictional bank, not published ISO 20022 requirements.
+- **Securities/Settlement rules stay unlinked rather than mislinked** — no sese/semt XSD
+  is vendored, and `SchemaIndex.search()` widens to other schemas when a message type is
+  absent, so seed linking requires the hit's message type to be one the rule names. The
+  unresolved element names are kept in the node's detail and shown as such in the UI.
+- **RCA is deterministic and offline** — `src/knowledge/rca.py` ranks probable causes from
+  four evidence sources (mandatory leaves missing from the payload, internal rules whose
+  keywords match the symptom, matching past incidents, elements that exist only in another
+  message version) and returns findings with citations and a HIGH/MEDIUM/LOW likelihood.
+  No model call, so it works with no key and can be argued with; a fluent unsourced
+  explanation would be worse than a ranked list. `record_cause()` is the only way an
+  incident becomes `confirmed`, and only a human can trigger it.
+- **Payload paths are compared against schema paths on both forms** — a payload path
+  includes the `Document` root, `TargetSchema.mandatory_leaves()` paths do not, so RCA
+  matches the full path and the root-stripped path and skips a leaf whose parent is absent
+  (an absent optional block does not make its children missing).
+- **The SME Knowledge tab lives in `src/ui/knowledge_tab.py`** — one tab with modes rather
+  than a tab each, because Knowledge, Stories, Tests, Review and RCA are all views of the
+  same graph. The store is held in `st.cache_resource`, so a reset must clear that cache.
 - **Chat history renders directly on the main page** (no fixed-height container) so the page
   scrolls naturally. Auto-scroll JS injected via `components.html(height=0)`.
 - **Demo scenarios are data, not UI code** — `src/ui/demo_scenarios.py` holds each
@@ -224,7 +273,7 @@ logs/
 
 (macOS/Linux: `.venv/bin/python -m pytest tests/ -q`)
 
-219 tests across `test_comparator.py`, `test_observability.py`, `test_token_usage.py`, `test_diff_classification.py`,
+244 tests across `test_knowledge.py`, `test_comparator.py`, `test_observability.py`, `test_token_usage.py`, `test_diff_classification.py`,
 `test_impact_and_bundle.py`, `test_trade_domain.py`, `test_transform_advisor.py`,
 `test_chat_grounding.py` and `test_demo_assets.py`. They run without an Anthropic API key — the Claude calls in
 `field_mapper.py` are the only part not covered.
@@ -248,6 +297,7 @@ Tail live: `Get-Content logs\swiftsage.log -Wait -Tail 50`
 | `SWIFTSAGE_BASELINE_TRANSFORM_HOURS` | 40 | Manual baseline per requirements document |
 | `SWIFTSAGE_BASELINE_DIFF_HOURS` | 8 | Manual baseline per impact assessment |
 | `SWIFTSAGE_BASELINE_CHAT_HOURS` | 0.5 | Manual baseline per grounded field question |
+| `KNOWLEDGE_DB_PATH` | data/knowledge/knowledge.db | SME knowledge graph location |
 
 ---
 

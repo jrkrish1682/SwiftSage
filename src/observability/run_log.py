@@ -33,6 +33,8 @@ CHAT = "chat"
 TOOL = "tool"
 TRANSFORM = "transform"
 DIFF = "diff"
+RCA = "rca"
+KNOWLEDGE = "knowledge"
 
 _MAX_STR = 240
 _SECRET_HINTS = ("key", "token", "secret", "password", "authorization", "credential")

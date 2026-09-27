@@ -27,6 +27,7 @@ build/
 # ── Generated artefacts ────────────────────────────────────────────────────────
 data/library/
 data/schemas/
+data/knowledge/
 *.docx
 
 # ── OS / editor ────────────────────────────────────────────────────────────────

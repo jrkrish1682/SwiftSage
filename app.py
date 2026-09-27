@@ -214,12 +214,13 @@ with st.sidebar:
 
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-(tab_demo, tab_chat, tab_transform, tab_diff, tab_library, tab_obs,
- tab_help) = st.tabs([
+(tab_demo, tab_chat, tab_transform, tab_diff, tab_knowledge, tab_library,
+ tab_obs, tab_help) = st.tabs([
     "🎬 Demo",
     "💬 Chat",
     "🔄 Transform Advisor",
     "🔍 XML Diff",
+    "🧠 SME Knowledge",
     "📚 Library",
     "📈 Observability",
     "ℹ️ Help",
@@ -1004,7 +1005,16 @@ with tab_diff:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — Standards Library
+# TAB 4 — SME Knowledge
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_knowledge:
+    from src.ui import knowledge_tab
+
+    knowledge_tab.render()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — Standards Library
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_library:
     hero(
@@ -1019,10 +1029,12 @@ with tab_library:
         ms_filter = st.selectbox(
             "Filter by message set",
             ["All", *ISO20022_MESSAGE_SETS],
+            key="lib_message_set",
         )
     with col_filter2:
         type_filter = st.selectbox(
             "Filter by artifact type", ["All", "xsd", "sample", "mug", "mdr"],
+            key="lib_artifact_type",
         )
 
     try:
@@ -1046,7 +1058,7 @@ with tab_library:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Observability
+# TAB 6 — Observability
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_obs:
     hero(
@@ -1063,12 +1075,15 @@ with tab_obs:
             run_log.TOOL: "Tool calls",
             run_log.TRANSFORM: "Transform runs",
             run_log.DIFF: "XML comparisons",
+            run_log.RCA: "RCA analyses",
+            run_log.KNOWLEDGE: "Knowledge updates",
         }
         chosen = st.multiselect(
             "Show",
             list(kind_labels),
             default=list(kind_labels),
             format_func=lambda k: kind_labels[k],
+            key="obs_kinds",
         )
     with col_actions:
         st.write("")
@@ -1270,9 +1285,26 @@ with tab_obs:
 
         st.caption(f"Log file: `{run_log.log_path()}`")
 
+    st.write("")
+    section(
+        "SME knowledge growth",
+        "What the institutional knowledge graph holds right now. Candidates are "
+        "things SwiftSage inferred that no specialist has confirmed yet.",
+    )
+    from src.ui import knowledge_tab as _kt
+
+    _counts = _kt.counts_snapshot()
+    stat_cards([
+        ("Facts",       _counts["nodes"],      "nodes in the graph",     "#4F46E5"),
+        ("Links",       _counts["edges"],      "typed relationships",    "#0EA5E9"),
+        ("Rules",       _counts["rules"],      "business rules",         "#10B981"),
+        ("Incidents",   _counts["defects"],    "recorded failures",      "#F59E0B"),
+        ("Candidates",  _counts["candidates"], "awaiting confirmation",  "#EF4444"),
+    ])
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — Help
+# TAB 7 — Help
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_help:
     hero(

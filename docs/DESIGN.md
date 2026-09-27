@@ -2,7 +2,8 @@
 
 How SwiftSage is put together, why it is put together that way, and where to look when
 something needs changing. Read [`../README.md`](../README.md) first for what the product
-does and [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) for a guided walkthrough of it.
+does, [`VISION.md`](VISION.md) for what it is growing into, and
+[`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) for a guided walkthrough of it.
 
 ---
 
@@ -41,13 +42,17 @@ in the repo and treated as the source of truth; remote sync is an extra, not a d
 
 ```
                     Streamlit UI (app.py)
-   Demo │ Chat │ Transform Advisor │ XML Diff │ Library │ Observability │ Help
-     │      │            │              │          │           │
-     │      │            │              │          │           └── observability/metrics.py
-     │      │            │              │          │                 measured time vs baseline
-     │      │            │              │          │
-     │      │            │              │          └── storage/standards_library.py
-     │      │            │              │              connectors/iso20022_connector.py
+   Demo │ Chat │ Transform Advisor │ XML Diff │ SME Knowledge │ Library │ Observability │ Help
+     │      │            │              │              │        │           │
+     │      │            │              │              │        │           └── observability/metrics.py
+     │      │            │              │              │        │                 measured time vs baseline
+     │      │            │              │              │        │
+     │      │            │              │              │        └── storage/standards_library.py
+     │      │            │              │              │            connectors/iso20022_connector.py
+     │      │            │              │              │
+     │      │            │              │              └── ui/knowledge_tab.py
+     │      │            │              │                  → knowledge/store (SQLite graph)
+     │      │            │              │                  → knowledge/seeds, rca, graph
      │      │            │              │
      │      │            │              └── comparator/  xml_comparator → canonicalizer
      │      │            │                               → diff_classifier ← schema_cardinality
@@ -59,17 +64,19 @@ in the repo and treated as the source of truth; remote sync is an extra, not a d
      │      │                              → requirements_generator (Word)
      │      │
      │      └── agent/  swift_agent (LangGraph ReAct, streaming)
-     │                  tools.py (14 @tool) ← storage/schema_index ← iso_glossary
+     │                  tools.py (17 @tool) ← storage/schema_index ← iso_glossary
+     │                                      ← knowledge/store (internal rules, RCA)
      │
      └── ui/demo_scenarios.py  (curated scenarios, presets, talking points)
 
              connectors/schema_bundle.py → data/standards/*.xsd   (offline truth)
              observability/run_log.py     → logs/runs.jsonl        (local telemetry)
+             knowledge/store.py           → data/knowledge/knowledge.db (institutional graph)
 ```
 
 Layering rule: no `src/` module imports `streamlit` except `ui/theme.py`, which is pure
 presentation. The UI orchestrates and renders;
-the domain logic is importable from a test or a script, which is why 200 tests run without
+the domain logic is importable from a test or a script, which is why 244 tests run without
 a browser or an API key.
 
 ---
@@ -190,7 +197,7 @@ Design notes:
 ## 6. Capability 3 — grounded Chat
 
 `agent/swift_agent.py` runs a LangGraph ReAct agent with streaming; `agent/tools.py`
-exposes 14 tools spanning validation, comparison, library sync, mapping and grounding.
+exposes 17 tools spanning validation, comparison, library sync, mapping and grounding.
 The two that matter for trust are `lookup_iso20022_element` and
 `compare_element_across_versions`, which search `SchemaIndex` by ISO short name, path
 fragment or business phrase and return path, cardinality, type, constraints and code list
@@ -201,6 +208,70 @@ constraint, so it is verified rather than assumed: the Observability tab reports
 of chat turns actually called a grounding tool, and the effort metric only credits turns
 that did (§8). Starter questions are grouped into domain packs — Payments, Cash, Trade,
 Settlement, Securities & FX — in `ui/prompt_packs.py`.
+
+---
+
+## 6b. Capability 4 — institutional knowledge and RCA
+
+The schema layer makes SwiftSage accurate about the *published* standard. It says nothing
+about a particular institution: which internal field feeds `UETR`, that a guarantee
+amendment without the original reference goes to manual checking, or that last quarter's
+rejects came from a truncated `RmtInf`. That second body of facts is the knowledge held by
+a handful of specialists, and `knowledge/store.py` is where it accumulates.
+
+**Why a typed graph in SQLite, not a vector store.** A business rule has to be
+enumerable, inspectable and editable by a BA, and an answer has to be able to name the
+rule it came from. Embeddings give neither, and at demo scale keyword and structured
+search are sufficient. Nodes are rules, ISO elements, internal fields, systems, defects
+and test scenarios; edges are typed (`governs`, `maps_to`, `caused`, `owned_by`,
+`contradicts`, `verifies`, …). Each node carries `evidence` rows — a citation and the run
+that produced it — so it can answer "why do you believe this?"
+
+**Candidate vs confirmed is the invariant that keeps the store worth reading.** Anything
+the model infers lands as `candidate` and renders as unconfirmed everywhere it appears;
+only a human promotes it. `rules()` and `search_rules()` default to the authoritative set
+(`seeded`, `confirmed`), so a caller that forgets to filter cannot inject a guess into a
+prompt or an export, and re-observing a confirmed fact never downgrades it. If the model
+could confirm its own inferences the store would drift and provenance would be worthless.
+
+`knowledge/seeds.py` ships twelve mocked rules, three each for Payments, Cash, Trade and
+Securities/Settlement, plus three historical incidents linked to the rules they breached.
+Rule elements are resolved against the vendored XSDs so a rule points at a real path —
+except for Securities/Settlement, where no sese/semt XSD is vendored: those element names
+stay recorded as unresolved rather than being linked to a same-named element in an
+unrelated schema, which is what `SchemaIndex.search()` would otherwise widen to.
+
+**RCA is deterministic.** `knowledge/rca.py` takes a reject reason and optionally the
+failing payload and ranks probable causes from four independent evidence sources:
+
+| Source | What it contributes |
+|---|---|
+| Target schema | Mandatory leaves absent from the payload (parent-aware, so an absent optional block does not orphan its children) |
+| Internal rules | Rules whose keywords, elements or message type match the symptom |
+| Incident history | Past defects with a similar symptom, and the rules they were attributed to |
+| Schema index | Named elements that exist only in a different version of the message |
+
+Each finding carries its citations, the rule IDs behind it and a HIGH/MEDIUM/LOW
+likelihood — not a verdict. No model call, so RCA works with no key, and a ranked list
+with visible evidence can be argued with in a way a fluent unsourced explanation cannot.
+`record_cause()` is the only path by which an incident becomes `confirmed`, and only a
+human triggers it; that write is what makes the next occurrence of the same symptom
+faster to explain.
+
+The agent reaches the same store through three tools — `lookup_internal_business_rule`,
+`list_internal_rules_for_message` and `diagnose_production_failure` — and the system
+prompt requires it to keep internal policy distinct from ISO requirements and to offer
+capture rather than invent a rule that is not there.
+
+**The store is designed for four more consumers than it has.** `MODES` in
+`ui/knowledge_tab.py` lists Knowledge, Stories, Tests, Review and RCA; the first and last
+are built, the middle three render as pending increments. They are modes of one tab
+rather than three tabs because they are all views of the same rules, mappings and
+incidents: a story cites the rule, a test pack asserts the rule, a review checks a
+proposed mapping against the confirmed one. Whatever consumes the graph inherits the same
+invariant — retrieval defaults to `AUTHORITATIVE`, so a generated story or test can only
+be built on knowledge a human stood behind. [`VISION.md`](VISION.md) has the intent behind
+each.
 
 ---
 
@@ -315,7 +386,7 @@ design is about not overstating it:
 
 ## 10. Testing strategy
 
-200 tests, no API key required, no browser required. The Claude call in `field_mapper.py`
+244 tests, no API key required, no browser required. The Claude call in `field_mapper.py`
 is the only part not covered — it is mocked, and everything downstream of it is tested
 against real fixtures.
 
@@ -330,6 +401,7 @@ against real fixtures.
 | `test_observability.py` | Event scrubbing, rotation, aggregation, filter semantics |
 | `test_token_usage.py` | Usage normalisation per SDK, cache arithmetic, legacy events, cached system block |
 | `test_demo_assets.py` | Scenario assets and preset labels, real offline runs, metric arithmetic |
+| `test_knowledge.py` | Graph CRUD, no-downgrade protection, seeding and reset, candidate filtering, RCA ranking and recorded causes |
 
 The load-bearing ones are the *contract* tests — preset labels matching real widget
 options, assets existing, offline scenarios producing the documented figures — because
@@ -350,9 +422,18 @@ those break silently in a live demo rather than loudly in CI.
 
 ## 12. Where this would go next
 
-The honest gaps, in the order they would matter: recorded-response tests around the Claude
-calls so mapping quality is regression-tested rather than eyeballed; CI and pinned
-requirements; retrieval over the full ISO 20022 catalogue rather than a vendored subset;
-and mapping reuse, where an approved mapping becomes reference data for the next
-programme — the point at which the tribal-knowledge capture stops being a side effect and
-becomes the product.
+On the knowledge side, in the order they would matter: the **acquisition loop**, so
+mapping runs, diffs and chat answers deposit candidate rules and mappings automatically
+rather than waiting to be typed in, with a *Teach SwiftSage* panel for confirming,
+editing or rejecting them; then **Stories**, **Tests** and **Review** as the three
+remaining consumers of the graph. [`VISION.md`](VISION.md) sets out why those five uses
+(SME, stories, tests, review, RCA) are one knowledge base read five ways rather than five
+features.
+
+On the engineering side: recorded-response tests around the Claude calls so mapping
+quality is regression-tested rather than eyeballed; CI and pinned requirements; and
+retrieval over the full ISO 20022 catalogue rather than a vendored subset.
+
+The point of arrival, for both: an approved mapping and a confirmed rule become reference
+data for the next programme — where the tribal-knowledge capture stops being a side
+effect and becomes the product.

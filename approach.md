@@ -1,9 +1,10 @@
 # SwiftSage — approach
 
 Why this POC exists, who it is for, what it set out to prove, and how far it got. Read
-[`README.md`](README.md) for installation and usage, [`docs/DESIGN.md`](docs/DESIGN.md)
-for the architecture as built, and [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a
-walkthrough of the scenarios.
+[`README.md`](README.md) for installation and usage, [`docs/VISION.md`](docs/VISION.md)
+for where it is heading, [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture as
+built, and [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a walkthrough of the
+scenarios.
 
 ---
 
@@ -12,10 +13,25 @@ walkthrough of the scenarios.
 **SwiftSage** is a domain-expert assistant for **Business Analysts and Product Owners**
 in financial institutions adopting or migrating to ISO 20022 messaging.
 
-It reduces the dependency on scarce ISO 20022 specialists by making the repeatable part
-of their work — reading schemas, grading version changes, drafting mappings — available
-on demand, in business language rather than XML. Specialists still review the output;
-they no longer have to author it from scratch.
+In the near term it reduces the dependency on scarce ISO 20022 specialists by making the
+repeatable part of their work — reading schemas, grading version changes, drafting
+mappings — available on demand, in business language rather than XML. Specialists still
+review the output; they no longer have to author it from scratch.
+
+The longer aim is the reason the store exists: the published standard is only half the
+knowledge a migration needs. The other half — *which* internal field feeds `UETR` here,
+why remittance information is truncated rather than split, what a guarantee amendment
+must carry before it will clear — is the institution's own, held by a few people and
+rediscovered on every programme. SwiftSage is built to **capture that business logic and
+tribal SME knowledge as the work is done**, hold it as structured, cited, human-confirmed
+knowledge, and become progressively more useful as an in-house SME: answering domain
+questions, drafting requirements and stories with the BA/PO, generating UAT and
+regression packs, reviewing transformation and mapping logic, and diagnosing production
+defects from its own accumulated precedent. Knowledge and RCA are live today; stories,
+tests and review are the next increments on the same graph.
+
+Full picture, including the guarantees that keep the store trustworthy:
+[`docs/VISION.md`](docs/VISION.md).
 
 ---
 
@@ -27,6 +43,8 @@ they no longer have to author it from scratch.
 | **Product Owner** | Cannot easily judge the impact of a schema version upgrade | A plain-English breaking-change summary with a scored business impact |
 | **Integration Architect** | No tooling to check whether an internal message round-trips through ISO 20022 | Schema-resolved paths and field-level mismatch warnings before build starts |
 | **Compliance / Ops** | Needs a record of what changed between two message versions | A classified diff (BREAKING / WARNING / INFO / BENIGN) with a severity score and an exportable assessment |
+| **ISO 20022 specialist** | Re-answers the same institutional questions for every programme, and the answers leave when they do | A place to state a rule once, with the evidence, and have it cited back in mappings, answers and root-cause analysis |
+| **Production support** | Reject reasons investigated from first principles each time | Probable causes ranked against the institution's own rules and past incidents, each with its evidence |
 
 ---
 
@@ -34,7 +52,7 @@ they no longer have to author it from scratch.
 
 Banks exchange ISO 20022 messages daily — payment initiations (`pain.001`), clearing and
 settlement (`pacs.008`), account reports (`camt.053`), trade undertakings (`tsrv.001`).
-Three recurring problems consume analyst time:
+Four recurring problems consume analyst time:
 
 1. **Schema version upgrades** — when a new version lands, teams need to know exactly
    what changed, how severe it is, and whether existing systems break.
@@ -43,12 +61,15 @@ Three recurring problems consume analyst time:
    Today that is manual.
 3. **Knowledge concentration** — ISO 20022 is large and the expertise sits with a few
    people, so analysis queues behind their availability.
+4. **Institutional knowledge is unwritten** — the bank's own conventions, derivations and
+   failure history are not in any schema. They are re-derived per programme, and lost when
+   the specialist moves on.
 
 ---
 
 ## What was built
 
-A Streamlit application with three analysis capabilities and the supporting evidence to
+A Streamlit application with four analysis capabilities and the supporting evidence to
 trust them.
 
 ### Capability 1 — Expert chat, grounded in the schemas
@@ -88,6 +109,19 @@ assumptions, open questions and a provenance record.
   baseline. No external service, works offline.
 - **Demo scenarios** — four rehearsed business questions, two of which run with no API
   key at all.
+
+### Capability 4 — institutional knowledge and root-cause analysis
+
+A local SQLite knowledge graph holding the institution's own facts: business rules, the
+ISO elements they govern, the internal fields and systems involved, and the incidents
+they caused — every node carrying its evidence. Twelve mocked rules (three each for
+Payments, Cash, Trade and Securities/Settlement) and three historical incidents ship
+seeded, labelled in their own evidence as demo policy for a fictional bank rather than
+published ISO requirements. Root-cause analysis takes a production reject reason and the
+failing payload and ranks probable causes against those rules, the incident history and
+the vendored schemas — deterministic, no model call, citations on every finding.
+Confirming a cause writes the incident back, which is how the store improves. Anything
+SwiftSage infers itself stays a *candidate* until a human confirms it.
 
 ---
 
@@ -141,6 +175,10 @@ assumptions, open questions and a provenance record.
    and two scenarios run end to end without an API key.
 6. **The API key is session-only.** It is entered in the sidebar, applied explicitly, and
    never written to disk or `.env`.
+7. **Institutional knowledge is a typed graph, and the model cannot promote its own
+   guesses.** Rules are enumerable, inspectable and editable, retrieval defaults to the
+   seeded-or-confirmed set, and internal policy is cited separately from the published
+   standard. An SME whose answers cannot be traced is not an SME.
 
 ---
 
@@ -168,6 +206,8 @@ assumptions, open questions and a provenance record.
   path validation, gap analysis, Word requirements document
 - Payments (`pain`, `pacs`, `camt`) plus a trade-finance demo (`tsrv`, `tsmt`), from
   nine vendored schema versions
+- A local institutional knowledge graph with seeded rules across four domains, and
+  deterministic root-cause analysis over it — both usable with no API key
 - Local observability and an effort metric that states its own assumptions
 - Four rehearsed demo scenarios, two of them key-free
 
@@ -182,6 +222,9 @@ assumptions, open questions and a provenance record.
 
 **Natural next steps**
 
+- The remaining consumers of the knowledge graph: story generation, UAT/regression test
+  packs, transformation review, and the acquisition loop that harvests candidates from
+  mapping, diff and chat runs (see [`docs/VISION.md`](docs/VISION.md))
 - MT → MX migration advisory
 - MyStandards integration
 - Code generation for transformation services

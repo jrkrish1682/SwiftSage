@@ -6,7 +6,37 @@ Covers the payment families (`pain`, `pacs`, `camt`) and a trade-finance demo (`
 
 Built with **Claude** (claude-sonnet-4-6), **LangGraph**, and **Streamlit**.
 
-**Where to go next:** [Quick Start](#quick-start) to run it · [Using SwiftSage](#using-swiftsage) for a task-by-task walkthrough · [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a guided walkthrough · [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the reasoning behind it.
+**Where to go next:** [Quick Start](#quick-start) to run it · [Using SwiftSage](#using-swiftsage) for a task-by-task walkthrough · [`docs/VISION.md`](docs/VISION.md) for where this is heading · [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a guided walkthrough · [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the reasoning behind it.
+
+---
+
+## Why it exists, and where it is going
+
+The published standard is the easy half. ISO 20022 lives in XSDs and code lists, and
+SwiftSage answers from a vendored copy of them, citing the version and path it read.
+
+The half that decides whether a payment clears is the institution's own: *we derive the
+IBAN from sort code and account number for cross-border traffic; remittance information is
+truncated at 140 characters rather than split; a guarantee amendment without the original
+undertaking reference goes to manual checking*. That knowledge sits with a handful of
+specialists and is rediscovered, at cost, on every programme.
+
+SwiftSage is built to **capture that business logic and tribal SME knowledge as the work
+is done** — holding it as structured, cited, human-confirmed knowledge in a local graph —
+so the same body of facts can be read five ways:
+
+| # | Use | Status |
+|---|---|---|
+| 1 | **An SME inside the organisation** — the institution's own rule, the ISO element it governs, the system that owns it, the incidents it caused, with evidence | **Live** (SME Knowledge tab; the agent can look internal rules up) |
+| 2 | **Requirements and stories with the BA/PO** — stories and Given/When/Then criteria that cite the rule they came from | Next (*Stories* mode) |
+| 3 | **An expert test agent for UAT and regression** — positive, negative and boundary cases generated per rule | Next (*Tests* mode) |
+| 4 | **A code reviewer for transformation and mapping logic** — a proposed mapping checked against confirmed mappings, mandatory targets and contradicting rules | Next (*Review* mode) |
+| 5 | **RCA of production defects** — probable causes ranked from the institution's rules, its incident history and the schemas, improving each time a cause is confirmed | **Live** (*RCA* mode) |
+
+What keeps it trustworthy: anything SwiftSage infers stays a **candidate** until a human
+confirms it, retrieval defaults to the confirmed set, and internal policy is never
+presented as a published ISO requirement. Full picture in
+[`docs/VISION.md`](docs/VISION.md).
 
 ### What works without an Anthropic API key
 
@@ -15,6 +45,7 @@ Built with **Claude** (claude-sonnet-4-6), **LangGraph**, and **Streamlit**.
 | XML Diff, breaking-change score, Word/Markdown impact assessment | AI Agent Chat (including grounded field answers) |
 | Standards Library browsing of the vendored XSDs | Transform Advisor field mapping |
 | Observability tab and effort metrics | — |
+| SME Knowledge tab — rule browser, graph view, root-cause analysis | — |
 | The two XML Diff demo scenarios | The mapping and grounded-chat demo scenarios |
 
 ---
@@ -24,6 +55,7 @@ Built with **Claude** (claude-sonnet-4-6), **LangGraph**, and **Streamlit**.
 - **Transform Advisor** — Parse an internal message (XML, JSON, CSV or XLSX field spec) → map each field to your chosen ISO 20022 target (DIRECT / DERIVED / SPLIT / COMBINED / UNMAPPED) → identify BLOCKING and ENRICHMENT gaps → generate a Word requirements document. The prompt context, including cardinality and code lists, is derived from the target XSD; every proposed ISO path is resolved against that schema and confidence is downgraded when it cannot be confirmed. A run maps at most 20 source fields (ranked on business relevance) to keep token cost predictable; the remainder are reported as deferred, never silently dropped. Uploading a source from the wrong family for the selected target raises an explicit mismatch warning.
 - **AI Agent Chat** — Conversational ISO 20022 expert for a BA/PO audience. Answers about specific fields are **grounded in the vendored XSDs**: the agent looks the element up by ISO name, path or business phrase and cites the message version, path, cardinality, type, constraints and code list it used. If the library does not cover the element, it says so instead of inventing one. Starter questions are grouped into domain packs — Payments, Cash, Trade, Settlement, Securities & FX.
 - **XML Diff** — Semantic comparison of two ISO 20022 XML files; classifies each difference as BREAKING / WARNING / INFO / BENIGN with an explainable 0–100 breaking-change score. Classification resolves real element names (so it works on namespaced production files) and consults the target XSD for cardinality, so removing a mandatory element grades differently from removing an optional one. Exports a business-readable impact assessment as Word or Markdown.
+- **SME Knowledge** — The institution's own knowledge, held as a local SQLite knowledge graph: business rules with the ISO elements they govern, the systems that own them and the incidents they caused. Twelve mocked rules (three each for Payments, Cash, Trade and Securities/Settlement) ship seeded so the tab is useful on first run; they are demo policy for a fictional bank, not published ISO 20022 requirements. **Root-cause analysis** takes a production reject reason and the failing payload and ranks probable causes against those rules, the incident history and the vendored schemas — deterministic, no model call, and every cause shows the evidence behind it. Confirming a cause writes the incident back into the graph, which is how it gets better over time. Anything SwiftSage infers itself stays a *candidate* until a specialist confirms it.
 - **Standards Library** — Browse the vendored XSD packages, or sync additional ones from the ISO 20022 GitHub repository.
 - **Observability** — Every chat turn, grounding lookup, mapping run and comparison is timed and appended to a local JSONL run log. The Observability tab shows run counts, median and slowest duration per activity, how many chat turns actually called a grounding tool, tool usage and errors. For anything that called Claude it also reports the tokens the API charged for — request tokens, response tokens, the size of the cached system prompt, and how much of each request was served from the prompt cache rather than re-billed. It also contrasts measured run time with a stated manual baseline (40 h for a requirements document, 8 h for an impact assessment, 30 min for a specialist field answer, each overridable via `SWIFTSAGE_BASELINE_*_HOURS`) so the "weeks to minutes" claim comes with its assumptions on screen. Only runs that delivered something are credited — a failed comparison earns nothing, and a chat turn only counts if it actually consulted the schemas. No external service, no key, works offline.
 - **Demo scenarios** — Four rehearsed scenarios in the Demo tab, each phrased as the business question it answers and carrying its own explanatory notes. The two XML Diff scenarios (a `pain.001` version upgrade and a trade guarantee amendment) run on one click with no API key; the mapping and grounded-chat scenarios preload their inputs. A guided walkthrough of all four is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
@@ -110,6 +142,17 @@ Paste your Anthropic API key in the **sidebar** and press **Apply key** — it o
 3. If the vendored library does not cover the element, SwiftSage says so rather than inventing a definition.
 4. Confirm it really looked things up: **📈 Observability** reports the share of chat turns that called a grounding tool.
 
+### Work out why a payment failed in production (no key needed)
+
+1. **🧠 SME Knowledge** → mode **RCA**.
+2. Paste the reject reason — e.g. *"Rejected by beneficiary bank: invalid account identifier, IBAN missing for cross-border payment"* — and, if you have it, the failing XML.
+3. **Analyse** ranks probable causes: internal rules that were not applied, mandatory elements absent from the payload, matching past incidents, and elements that exist in a different version of the message. Each carries the rule or schema it came from, and a HIGH / MEDIUM / LOW likelihood rather than a verdict.
+4. When the cause is agreed, expand **This was the cause — record it**. That writes a confirmed incident linked to the rule, so the same symptom is explained faster next time. SwiftSage never promotes its own ranking.
+
+### Browse what the institution knows
+
+**🧠 SME Knowledge** → mode **Knowledge**. Search by phrase or rule ID, filter by domain, and open a rule to see its condition and action, the ISO elements it governs, the systems that own it, its evidence, and a graph of everything linked to it. Switch on *Include candidates* to see unconfirmed knowledge. *Reset the knowledge graph* returns it to the seeded state before a rehearsal.
+
 ### Walk through the built-in scenarios
 
 **🎬 Demo** → four rehearsed scenarios, each phrased as the business question it answers, with notes explaining the use case and what the tool does with it. The two XML Diff scenarios run on a single click with no key. Each is explained end to end in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
@@ -120,7 +163,7 @@ Paste your Anthropic API key in the **sidebar** and press **Apply key** — it o
 
 ```
 SwiftSage/
-├── app.py                              # Streamlit UI — 7 tabs
+├── app.py                              # Streamlit UI — 8 tabs
 ├── requirements.txt
 ├── .env.example
 ├── config/
@@ -128,7 +171,7 @@ SwiftSage/
 ├── src/
 │   ├── agent/
 │   │   ├── swift_agent.py              # LangGraph ReAct agent + streaming
-│   │   └── tools.py                    # 14 @tool functions
+│   │   └── tools.py                    # 17 @tool functions
 │   ├── transformer/
 │   │   ├── message_parser.py           # Internal XML / JSON / CSV / XLSX → List[InternalField]
 │   │   ├── target_schema.py            # Flattens a vendored XSD → prompt context + path lookup
@@ -150,6 +193,11 @@ SwiftSage/
 │   │   ├── standards_library.py        # Local artefact catalogue
 │   │   ├── schema_index.py             # Searchable index over the vendored XSDs (chat grounding)
 │   │   └── iso_glossary.py             # Curated business definitions for ISO element names
+│   ├── knowledge/
+│   │   ├── store.py                    # SQLite knowledge graph — nodes, edges, evidence
+│   │   ├── seeds.py                    # 12 mocked business rules + 3 historical incidents
+│   │   ├── rca.py                      # Deterministic root-cause ranking
+│   │   └── graph.py                    # Neighbourhood → Graphviz DOT
 │   ├── observability/
 │   │   ├── run_log.py                  # Local JSONL run log (durations, counts, outcomes)
 │   │   ├── token_usage.py              # Normalises SDK token usage; prompt-cache arithmetic
@@ -157,9 +205,11 @@ SwiftSage/
 │   ├── ui/
 │   │   ├── theme.py                    # CSS, hero and section helpers
 │   │   ├── demo_scenarios.py           # One-click demo scenarios + explanatory notes
+│   │   ├── knowledge_tab.py            # SME Knowledge tab — Knowledge and RCA modes
 │   │   └── prompt_packs.py             # Chat starter questions per business domain
 │   └── utils/helpers.py
 ├── data/
+│   ├── knowledge/knowledge.db              # Knowledge graph (created on first run, git-ignored)
 │   ├── standards/                          # Vendored XSDs: pain, pacs, camt, tsrv, tsmt
 │   └── samples/
 │       ├── internal/
@@ -176,12 +226,13 @@ SwiftSage/
 │       ├── pain001_v12_upgrade.xml         # pain.001.001.12 upgrade of the baseline
 │       └── pacs008_sample.xml              # ISO 20022 pacs.008 reference
 ├── docs/
+│   ├── VISION.md                            # The AI-SME vision, the five uses and their status
 │   ├── DEMO_SCRIPT.md                       # Guided walkthrough of the four demo scenarios
 │   └── DESIGN.md                            # Architecture, data flows and design decisions
 ├── logs/
 │   ├── swiftsage.log                       # Rotating application log
 │   └── runs.jsonl                          # Local run log (git-ignored)
-└── tests/                                  # 200 tests
+└── tests/                                  # 244 tests
 ```
 
 ---
@@ -194,6 +245,7 @@ SwiftSage/
 | **💬 Chat** | Conversational ISO 20022 agent — streaming answers, BA/PO persona, schema-grounded field answers, domain starter packs |
 | **🔄 Transform Advisor** | Map an internal message (XML / JSON / CSV / XLSX) → ISO 20022, gap analysis, download requirements doc |
 | **🔍 XML Diff** | Semantic diff of two ISO 20022 XMLs with breaking-change scoring and impact-assessment export |
+| **🧠 SME Knowledge** | The institution's own rules, mappings and incidents — search and inspect them, see the graph around a rule, and run root-cause analysis on a production failure. Modes: Knowledge and RCA are live; Stories, Tests and Review are the next increments on the same graph |
 | **📚 Library** | Browse the vendored and downloaded XSD schemas |
 | **📈 Observability** | Local run log — durations, token usage and prompt-cache hits per activity, effort saved vs the manual baseline, grounded-chat share, tool usage, errors; download or clear the JSONL |
 | **ℹ️ Help** | Quick-start guide and classification reference |
@@ -243,7 +295,7 @@ SwiftSage/
 .venv/bin/python -m pytest tests/ -q
 ```
 
-200 tests. They need no Anthropic API key and no browser — the Claude call in `field_mapper.py` is the only part not covered.
+244 tests. They need no Anthropic API key and no browser — the Claude call in `field_mapper.py` is the only part not covered.
 
 ---
 
@@ -259,6 +311,7 @@ Never put secrets here — the API key belongs in the sidebar.
 | `SWIFTSAGE_BASELINE_TRANSFORM_HOURS` | `40` | Manual baseline per requirements document, used by the effort metric |
 | `SWIFTSAGE_BASELINE_DIFF_HOURS` | `8` | Manual baseline per impact assessment |
 | `SWIFTSAGE_BASELINE_CHAT_HOURS` | `0.5` | Manual baseline per specialist field question |
+| `KNOWLEDGE_DB_PATH` | `data/knowledge/knowledge.db` | Where the SME knowledge graph is stored |
 
 ---
 

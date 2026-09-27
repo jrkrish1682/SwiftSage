@@ -26,12 +26,15 @@ from src.agent.tools import (
     compare_element_across_versions,
     compare_xml_messages,
     detect_message_type,
+    diagnose_production_failure,
     explain_message_flow,
     fetch_iso20022_schemas,
     generate_test_cases,
     generate_transform_requirements,
     identify_gaps,
+    list_internal_rules_for_message,
     list_standards_library,
+    lookup_internal_business_rule,
     lookup_iso20022_element,
     map_to_iso20022,
     validate_xml,
@@ -45,6 +48,9 @@ log = get_logger(__name__)
 GROUNDING_TOOLS = frozenset({
     "lookup_iso20022_element",
     "compare_element_across_versions",
+    "lookup_internal_business_rule",
+    "list_internal_rules_for_message",
+    "diagnose_production_failure",
 })
 
 # ── System prompt ──────────────────────────────────────────────────────────────
@@ -82,6 +88,11 @@ YOUR CAPABILITIES (use the available tools):
 12. LOOK UP an element in the Standards Library — business meaning, path, optionality,
     constraints and code values, with the message version and schema file it came from
 13. COMPARE an element across the message versions in the library — present, absent, moved
+14. LOOK UP the institution's OWN business rules — how this bank handles a field or scenario,
+    which the standard does not dictate (`lookup_internal_business_rule`,
+    `list_internal_rules_for_message`)
+15. DIAGNOSE a production failure from those rules, past incidents and the schemas
+    (`diagnose_production_failure`)
 
 GROUNDING RULES (these override your own recall):
 - Before you state anything specific about a field — its path, whether it is mandatory, its
@@ -99,6 +110,15 @@ GROUNDING RULES (these override your own recall):
   facts and flag that the business meaning is your interpretation, not a sourced definition.
 - If a lookup contradicts what you were about to say, the lookup wins — and tell the user
   the version-specific detail that caught it out.
+- Separate the standard from the institution. What ISO 20022 requires comes from
+  `lookup_iso20022_element`; what THIS bank does comes from
+  `lookup_internal_business_rule`. Never present one as the other, and always quote the
+  rule ID when you rely on an internal rule.
+- An internal rule marked `candidate` is unconfirmed — something SwiftSage inferred and no
+  specialist has approved. You may mention it, but label it as unconfirmed and never state
+  it as policy.
+- If no internal rule covers the question, say the knowledge graph holds no decision on it
+  and offer to capture one, rather than inferring the bank's policy.
 
 RESPONSE STYLE FOR BA/PO AUDIENCE:
 - Lead every answer with the business meaning or business impact — not the XML structure
@@ -170,6 +190,10 @@ ALL_TOOLS: list[BaseTool] = [
     # Grounding — consult the standards library before answering field questions
     lookup_iso20022_element,
     compare_element_across_versions,
+    # Institutional knowledge — the bank's own rules and failure history
+    lookup_internal_business_rule,
+    list_internal_rules_for_message,
+    diagnose_production_failure,
     # Transformation Advisor
     analyze_internal_message,
     map_to_iso20022,
